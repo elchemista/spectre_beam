@@ -1,21 +1,33 @@
-# SpectreBeam
+# Spectre Beam
 
-**TODO: Add description**
+`spectre_beam` is the external-channel boundary package for Spectre. Its
+version 0.1.2 integration owns the Stack-local `channel/2` DSL and compiles an
+immutable description of configured adapters.
 
 ## Installation
 
-If [available in Hex](https://hex.pm/docs/publish), the package can be installed
-by adding `spectre_beam` to your list of dependencies in `mix.exs`:
+The project is distributed from GitHub:
 
 ```elixir
 def deps do
   [
-    {:spectre_beam, "~> 0.1.0"}
+    {:spectre_beam, github: "elchemista/spectre_beam"}
   ]
 end
 ```
 
-Documentation can be generated with [ExDoc](https://github.com/elixir-lang/ex_doc)
-and published on [HexDocs](https://hexdocs.pm). Once published, the docs can
-be found at <https://hexdocs.pm/spectre_beam>.
+## Stack
 
+```elixir
+defmodule MyApp.AI do
+  use Spectre.Stack
+
+  install Spectre.Beam do
+    channel :telegram, MyApp.Telegram
+    channel :whatsapp, MyApp.WhatsApp
+  end
+end
+```
+
+Installation describes the boundary but does not start channel adapters or
+authorize them for an Agent.
