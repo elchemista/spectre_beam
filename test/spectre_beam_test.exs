@@ -40,19 +40,19 @@ end
 defmodule Spectre.Beam.StackContractTest do
   use ExUnit.Case, async: true
 
+  alias Spectre.Beam.StackContractTest.Agent
   alias Spectre.Beam.StackContractTest.Stack
   alias Spectre.Stack.Contract.V1
   alias Spectre.Stack.Definition
   alias Spectre.Stack.Runtime
-  alias Spectre.Beam.StackContractTest.Agent
 
   test "publishes a compatible V1 manifest with the Beam binding" do
     assert {:ok, package} = V1.verify_installable(Spectre.Beam)
 
     assert package.id == :beam
-    assert package.version == "0.1.2"
+    assert package.version == "0.1.3"
     assert package.contract == 1
-    assert package.spectre == "~> 0.1.2"
+    assert package.spectre == "~> 0.1.3"
     assert package.dsl == Spectre.Beam
     assert package.provides == [{:service, :beam}]
     assert package.operations == []

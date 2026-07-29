@@ -1,18 +1,22 @@
 defmodule Spectre.Beam.RuntimeTest.Adapter do
   @behaviour Spectre.Beam.Channel
 
+  alias Spectre.Beam.Content
+  alias Spectre.Beam.Inbound
+  alias Spectre.Beam.Receipt
+
   @impl true
   def capabilities(_opts), do: MapSet.new([:text, :document])
 
   @impl true
   def decode(event, _opts) do
     {:ok,
-     %Spectre.Beam.Inbound{
+     %Inbound{
        message_id: event.message_id,
        conversation_id: event.conversation_id,
        sender: event.sender,
        recipient: "agent",
-       content: Spectre.Beam.Content.text(event.text),
+       content: Content.text(event.text),
        authenticated?: true,
        occurred_at: ~U[2026-07-28 10:00:00Z],
        metadata: %{}
@@ -24,7 +28,7 @@ defmodule Spectre.Beam.RuntimeTest.Adapter do
     if pid = Keyword.get(opts, :test_pid), do: send(pid, {:beam_delivered, outbound})
 
     {:ok,
-     Spectre.Beam.Receipt.accepted(
+     Receipt.accepted(
        outbound,
        provider_message_id: "provider-#{outbound.idempotency_key}"
      )}
@@ -97,10 +101,16 @@ defmodule Spectre.Beam.RuntimeTest do
   use ExUnit.Case, async: false
 
   alias Spectre.Action.Provider
+  alias Spectre.Beam.RuntimeTest.Adapter
   alias Spectre.Beam.RuntimeTest.Agent
+  alias Spectre.Beam.Store
+  alias Spectre.Invocation
+  alias Spectre.Run.Boundary
+  alias Spectre.Run.Ref
+  alias Spectre.Run.Request
 
   setup do
-    :ok = Spectre.Beam.Store.reset()
+    :ok = Store.reset()
     :ok
   end
 
@@ -175,6 +185,138 @@ defmodule Spectre.Beam.RuntimeTest do
     refute_receive {:beam_delivered, _outbound}, 50
   end
 
+  test "reactive delivery is fenced by the observable Run reference" do
+    event = %{
+      message_id: "ref-message",
+      conversation_id: "ref-conversation",
+      sender: "ref-customer",
+      text: "question"
+    }
+
+    assert {:ok, inbound} = Spectre.Beam.decode(Agent, :sales, event)
+
+    ref = Ref.new("run-beam-ref", 3, :reply, "boundary-beam-ref")
+    result = %Spectre.Result{state: %Spectre.State{}, reply_text: "not the boundary"}
+
+    turn = %Spectre.Turn{
+      ref: ref,
+      result: result,
+      observable: {:reply, "boundary reply", ref}
+    }
+
+    opts = [adapter_opts: [test_pid: self()]]
+
+    assert {:ok, first_receipt} = Spectre.Beam.reply(Agent, inbound, turn, opts)
+    assert_receive {:beam_delivered, outbound}
+    assert outbound.content.text == "boundary reply"
+    assert outbound.idempotency_key == "beam-reply:" <> Ref.token(ref)
+
+    assert {:ok, duplicate_receipt} = Spectre.Beam.reply(Agent, inbound, turn, opts)
+    assert duplicate_receipt == first_receipt
+    refute_receive {:beam_delivered, _outbound}, 50
+  end
+
+  test "only an explicitly legacy Turn can use result-based reply fallback" do
+    event = %{
+      message_id: "legacy-message",
+      conversation_id: "legacy-conversation",
+      sender: "legacy-customer",
+      text: "question"
+    }
+
+    assert {:ok, inbound} = Spectre.Beam.decode(Agent, :sales, event)
+
+    result = %Spectre.Result{
+      state: %Spectre.State{},
+      reply_text: "legacy reply",
+      metadata: %{runtime_identity: %{turn_id: "legacy-turn"}}
+    }
+
+    legacy_turn = %Spectre.Turn{
+      result: result,
+      decision: {:reply, result},
+      observable: nil
+    }
+
+    opts = [adapter_opts: [test_pid: self()]]
+
+    assert {:ok, _receipt} = Spectre.Beam.reply(Agent, inbound, legacy_turn, opts)
+    assert_receive {:beam_delivered, outbound}
+    assert String.starts_with?(outbound.idempotency_key, "beam-legacy-reply:")
+
+    assert {:error, :beam_turn_boundary_required} =
+             Spectre.Beam.reply(Agent, inbound, result, opts)
+
+    refute_receive {:beam_delivered, _outbound}, 50
+  end
+
+  test "needs and invocation projections never leak a result reply" do
+    event = %{
+      message_id: "needs-message",
+      conversation_id: "needs-conversation",
+      sender: "needs-customer",
+      text: "question"
+    }
+
+    assert {:ok, inbound} = Spectre.Beam.decode(Agent, :sales, event)
+
+    ref = Ref.new("run-beam-needs", 1, :policy, "boundary-beam-needs")
+
+    boundary = %Boundary{
+      id: ref.boundary_id,
+      kind: :needs,
+      ref: ref,
+      request: %Request{id: "request-beam-needs", kind: :policy, name: :confirmation}
+    }
+
+    result = %Spectre.Result{state: %Spectre.State{}, reply_text: "must not be delivered"}
+
+    for observable <- [
+          {:needs, boundary},
+          {:awaiting, %{ref | kind: :invocation}},
+          {:reply, nil, %{ref | kind: :complete}}
+        ] do
+      turn = %Spectre.Turn{ref: ref, result: result, observable: observable}
+
+      assert {:ok, nil} =
+               Spectre.Beam.reply(Agent, inbound, turn, adapter_opts: [test_pid: self()])
+    end
+
+    refute_receive {:beam_delivered, _outbound}, 50
+  end
+
+  test "the inbound pipeline returns policy and invocation boundaries without delivery" do
+    opts = [adapter_opts: [test_pid: self()]]
+
+    policy_event = %{
+      message_id: "policy-boundary",
+      conversation_id: "boundary-conversation",
+      sender: "boundary-customer",
+      text: "notify"
+    }
+
+    assert {:ok, policy_exchange} = Spectre.Beam.handle(Agent, :sales, policy_event, opts)
+    assert {:needs, %Boundary{} = policy} = policy_exchange.turn.observable
+    assert policy_exchange.turn.boundary == policy
+    assert policy_exchange.receipt == nil
+
+    invocation_event = %{
+      message_id: "invocation-boundary",
+      conversation_id: "boundary-conversation",
+      sender: "boundary-customer",
+      text: "notify sales"
+    }
+
+    assert {:ok, invocation_exchange} =
+             Spectre.Beam.handle(Agent, :sales, invocation_event, opts)
+
+    assert {:awaiting, %Ref{} = invocation_ref} = invocation_exchange.turn.observable
+    assert %Invocation{ref: ^invocation_ref} = invocation_exchange.turn.boundary
+    assert invocation_exchange.receipt == nil
+
+    refute_receive {:beam_delivered, _outbound}, 50
+  end
+
   test "a proactive message is a normal effect and is not auto-executed" do
     assert {:ok, result} = Spectre.ask(Agent, "notify sales")
     assert [%Spectre.Effect{kind: :action, status: :pending} = effect] = result.effects
@@ -235,7 +377,7 @@ defmodule Spectre.Beam.RuntimeTest do
       use Spectre.Beam
 
       beaming do
-        channel :known, adapter: Spectre.Beam.RuntimeTest.Adapter
+        channel :known, adapter: #{inspect(Adapter)}
       end
 
       flow :invalid, beam: :missing do

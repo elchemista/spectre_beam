@@ -1,6 +1,8 @@
 defmodule Spectre.Beam.Extension do
   @moduledoc false
 
+  alias Spectre.Action.Provider.Mount, as: ProviderMount
+  alias Spectre.Beam.ActionProvider
   alias Spectre.Beam.Config
   alias Spectre.Beam.Endpoint
   alias Spectre.Flow.Constraint
@@ -121,9 +123,9 @@ defmodule Spectre.Beam.Extension do
   @impl true
   def action_providers(%Config{} = config) do
     Enum.map(config.endpoints, fn endpoint ->
-      Spectre.Action.Provider.Mount.new(
+      ProviderMount.new(
         {:beam, endpoint.id},
-        Spectre.Beam.ActionProvider,
+        ActionProvider,
         endpoint: endpoint
       )
     end)

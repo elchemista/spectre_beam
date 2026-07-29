@@ -33,6 +33,8 @@ end
 defmodule Spectre.Beam.AdapterPipelineTest.Adapter do
   @behaviour Spectre.Beam.Channel
 
+  alias Spectre.Beam.Receipt
+
   @impl true
   def decode(event, _opts) do
     {:ok,
@@ -47,7 +49,7 @@ defmodule Spectre.Beam.AdapterPipelineTest.Adapter do
   end
 
   @impl true
-  def deliver(outbound, _opts), do: {:ok, Spectre.Beam.Receipt.accepted(outbound)}
+  def deliver(outbound, _opts), do: {:ok, Receipt.accepted(outbound)}
 end
 
 defmodule Spectre.Beam.AdapterPipelineTest.SuffixPlug do
@@ -109,10 +111,12 @@ end
 defmodule Spectre.Beam.AdapterPipelineTest do
   use ExUnit.Case, async: true
 
+  alias Spectre.Beam.AdapterPipelineTest.Adapter
+  alias Spectre.Beam.AdapterPipelineTest.Agent
+  alias Spectre.Beam.AdapterPipelineTest.EndpointMutationPlug
+  alias Spectre.Beam.AdapterPipelineTest.Provider
   alias Spectre.Beam.Adapters.ExGram
   alias Spectre.Beam.Adapters.ExWapp
-  alias Spectre.Beam.AdapterPipelineTest.Agent
-  alias Spectre.Beam.AdapterPipelineTest.Provider
   alias Spectre.Beam.Content
   alias Spectre.Beam.Endpoint
   alias Spectre.Beam.Outbound
@@ -127,14 +131,14 @@ defmodule Spectre.Beam.AdapterPipelineTest do
   end
 
   test "plugs cannot replace endpoint identity while retaining its id" do
-    endpoint = Endpoint.new(:test, adapter: Spectre.Beam.AdapterPipelineTest.Adapter)
+    endpoint = Endpoint.new(:test, adapter: Adapter)
 
     assert {:error, {:beam_plug_changed_pipeline_identity, :before_decode}} =
              Pipeline.run(
                :before_decode,
                endpoint,
                %{},
-               [Spectre.Beam.AdapterPipelineTest.EndpointMutationPlug]
+               [EndpointMutationPlug]
              )
   end
 

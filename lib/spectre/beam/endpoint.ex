@@ -3,6 +3,8 @@ defmodule Spectre.Beam.Endpoint do
   One configured external channel endpoint.
   """
 
+  alias Spectre.Beam.Pipeline
+
   @known_options [
     :type,
     :adapter,
@@ -145,7 +147,7 @@ defmodule Spectre.Beam.Endpoint do
       {stage,
        configured
        |> Map.get(stage, [])
-       |> Spectre.Beam.Pipeline.validate_specs!(stage)}
+       |> Pipeline.validate_specs!(stage)}
     end)
   end
 
