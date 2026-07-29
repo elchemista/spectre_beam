@@ -32,8 +32,14 @@ defmodule Spectre.Beam.Outbound do
   def new(attrs) when is_map(attrs) do
     attrs =
       case Map.get(attrs, :content) do
-        %Content{} -> attrs
-        content -> Map.put(attrs, :content, Content.new(content))
+        %Content{} ->
+          attrs
+
+        content when is_map(content) or is_list(content) ->
+          Map.put(attrs, :content, Content.new(content))
+
+        _invalid ->
+          attrs
       end
 
     attrs
