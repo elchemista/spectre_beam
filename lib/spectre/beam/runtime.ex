@@ -15,6 +15,7 @@ defmodule Spectre.Beam.Runtime do
   alias Spectre.Input
   alias Spectre.Input.Source
   alias Spectre.Result
+  alias Spectre.Run.Ref
   alias Spectre.Turn
 
   @spec decode(module(), term(), term(), keyword()) ::
@@ -60,29 +61,33 @@ defmodule Spectre.Beam.Runtime do
 
   @spec reply(module(), Inbound.t(), Result.t() | Turn.t(), keyword()) ::
           {:ok, Receipt.t() | nil} | {:error, term()}
-  def reply(agent, %Inbound{} = inbound, %Turn{result: result}, opts),
-    do: reply(agent, inbound, result, opts)
+  def reply(
+        agent,
+        %Inbound{} = inbound,
+        %Turn{observable: {:reply, output, %Ref{} = ref}},
+        opts
+      )
+      when is_binary(output) and is_list(opts),
+      do: deliver_reply(agent, inbound, output, reply_key(ref), opts)
 
-  def reply(agent, %Inbound{} = inbound, %Result{} = result, opts) when is_list(opts) do
+  def reply(
+        agent,
+        %Inbound{} = inbound,
+        %Turn{observable: nil, decision: {:reply, %Result{} = result}},
+        opts
+      )
+      when is_list(opts) do
     if Result.visible_reply?(result) do
-      with {:ok, endpoint} <- endpoint(agent, inbound.endpoint) do
-        outbound =
-          Outbound.new(%{
-            endpoint: endpoint.id,
-            conversation_id: inbound.conversation_id,
-            to: inbound.sender,
-            reply_to: inbound.message_id,
-            content: Content.text(result.reply_text),
-            idempotency_key: reply_key(result, inbound),
-            metadata: %{kind: :reactive}
-          })
-
-        deliver(endpoint, outbound, Keyword.put(opts, :agent, agent))
-      end
+      deliver_reply(agent, inbound, result.reply_text, legacy_reply_key(result, inbound), opts)
     else
       {:ok, nil}
     end
   end
+
+  def reply(_agent, %Inbound{}, %Turn{}, opts) when is_list(opts), do: {:ok, nil}
+
+  def reply(_agent, %Inbound{}, %Result{}, opts) when is_list(opts),
+    do: {:error, :beam_turn_boundary_required}
 
   @spec handle(module() | GenServer.server(), term(), term(), keyword()) ::
           {:ok, Exchange.t()} | :ignore | {:error, term()}
@@ -464,8 +469,30 @@ defmodule Spectre.Beam.Runtime do
   defp validate_pipeline_receipt(receipt, _outbound, endpoint),
     do: {:error, {:invalid_beam_receipt_pipeline_value, endpoint.id, receipt}}
 
-  @spec reply_key(Result.t(), Inbound.t()) :: String.t()
-  defp reply_key(result, inbound) do
+  @spec deliver_reply(module(), Inbound.t(), String.t(), String.t(), keyword()) ::
+          {:ok, Receipt.t()} | {:error, term()}
+  defp deliver_reply(agent, inbound, output, idempotency_key, opts) do
+    with {:ok, endpoint} <- endpoint(agent, inbound.endpoint) do
+      outbound =
+        Outbound.new(%{
+          endpoint: endpoint.id,
+          conversation_id: inbound.conversation_id,
+          to: inbound.sender,
+          reply_to: inbound.message_id,
+          content: Content.text(output),
+          idempotency_key: idempotency_key,
+          metadata: %{kind: :reactive}
+        })
+
+      deliver(endpoint, outbound, Keyword.put(opts, :agent, agent))
+    end
+  end
+
+  @spec reply_key(Ref.t()) :: String.t()
+  defp reply_key(%Ref{} = ref), do: "beam-reply:" <> Ref.token(ref)
+
+  @spec legacy_reply_key(Result.t(), Inbound.t()) :: String.t()
+  defp legacy_reply_key(result, inbound) do
     turn_id = get_in(result.metadata, [:runtime_identity, :turn_id]) || Spectre.Identity.uuid7()
 
     digest =
@@ -475,7 +502,7 @@ defmodule Spectre.Beam.Runtime do
       )
       |> Base.url_encode64(padding: false)
 
-    "beam-reply:" <> digest
+    "beam-legacy-reply:" <> digest
   end
 
   @spec store(Endpoint.t(), :inbound | :outbound, keyword()) :: {module(), keyword()}

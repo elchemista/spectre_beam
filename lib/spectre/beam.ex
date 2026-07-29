@@ -10,13 +10,13 @@ defmodule Spectre.Beam do
 
   alias Spectre.Stack.DSL
 
-  @version "0.1.2"
+  @version "0.1.3"
 
   use Spectre.Stack.Installable,
     id: :beam,
     version: @version,
     contract: 1,
-    spectre: "~> 0.1.2",
+    spectre: "~> 0.1.3",
     provides: [{:service, :beam}],
     agent_extensions: [Spectre.Beam.Extension],
     dsl: __MODULE__
@@ -116,7 +116,8 @@ defmodule Spectre.Beam do
   defdelegate to_input(inbound), to: Spectre.Beam.Runtime
 
   @doc """
-  Delivers the visible reply from a result through the inbound endpoint.
+  Delivers the observable reply boundary from a turn through the inbound
+  endpoint.
   """
   defdelegate reply(agent, inbound, result, opts \\ []), to: Spectre.Beam.Runtime
 

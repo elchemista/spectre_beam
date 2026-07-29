@@ -74,9 +74,16 @@ Provider clients and subscriptions remain caller-owned runtime values:
   )
 ```
 
-Beam delivers `exchange.turn.result.reply_text` but never automatically
-executes a staged proactive effect. It remains subject to Spectre policy,
-durability, and idempotency:
+Beam delivers only an observable
+`{:reply, output, %Spectre.Run.Ref{}}` boundary. Policy and invocation
+boundaries (`{:needs, boundary}` and `{:awaiting, invocation_ref}`) are
+returned to the host without leaking any intermediate `result.reply_text`.
+The outbound idempotency key is derived from
+`Spectre.Run.Ref.token/1`, so retrying the same boundary cannot deliver it
+twice.
+
+Beam never automatically executes a staged proactive effect. It remains
+subject to Spectre policy, durability, and idempotency:
 
 ```elixir
 {:ok, result} = Spectre.ask(MyApp.Agent, "notify")
