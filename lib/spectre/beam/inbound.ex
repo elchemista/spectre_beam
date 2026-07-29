@@ -59,7 +59,7 @@ defmodule Spectre.Beam.Inbound do
     unless is_binary(inbound.message_id) and inbound.message_id != "",
       do: raise(ArgumentError, "Beam inbound message_id is required")
 
-    unless not is_nil(inbound.conversation_id),
+    if is_nil(inbound.conversation_id),
       do: raise(ArgumentError, "Beam inbound conversation_id is required")
 
     unless match?(%Content{}, inbound.content),

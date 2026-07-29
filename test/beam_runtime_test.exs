@@ -1,18 +1,22 @@
 defmodule Spectre.Beam.RuntimeTest.Adapter do
   @behaviour Spectre.Beam.Channel
 
+  alias Spectre.Beam.Content
+  alias Spectre.Beam.Inbound
+  alias Spectre.Beam.Receipt
+
   @impl true
   def capabilities(_opts), do: MapSet.new([:text, :document])
 
   @impl true
   def decode(event, _opts) do
     {:ok,
-     %Spectre.Beam.Inbound{
+     %Inbound{
        message_id: event.message_id,
        conversation_id: event.conversation_id,
        sender: event.sender,
        recipient: "agent",
-       content: Spectre.Beam.Content.text(event.text),
+       content: Content.text(event.text),
        authenticated?: true,
        occurred_at: ~U[2026-07-28 10:00:00Z],
        metadata: %{}
@@ -24,7 +28,7 @@ defmodule Spectre.Beam.RuntimeTest.Adapter do
     if pid = Keyword.get(opts, :test_pid), do: send(pid, {:beam_delivered, outbound})
 
     {:ok,
-     Spectre.Beam.Receipt.accepted(
+     Receipt.accepted(
        outbound,
        provider_message_id: "provider-#{outbound.idempotency_key}"
      )}
@@ -97,14 +101,16 @@ defmodule Spectre.Beam.RuntimeTest do
   use ExUnit.Case, async: false
 
   alias Spectre.Action.Provider
+  alias Spectre.Beam.RuntimeTest.Adapter
   alias Spectre.Beam.RuntimeTest.Agent
+  alias Spectre.Beam.Store
   alias Spectre.Invocation
   alias Spectre.Run.Boundary
   alias Spectre.Run.Ref
   alias Spectre.Run.Request
 
   setup do
-    :ok = Spectre.Beam.Store.reset()
+    :ok = Store.reset()
     :ok
   end
 
@@ -371,7 +377,7 @@ defmodule Spectre.Beam.RuntimeTest do
       use Spectre.Beam
 
       beaming do
-        channel :known, adapter: Spectre.Beam.RuntimeTest.Adapter
+        channel :known, adapter: #{inspect(Adapter)}
       end
 
       flow :invalid, beam: :missing do

@@ -43,10 +43,9 @@ defmodule Spectre.Beam.Outbound do
 
   @spec validate!(t()) :: t()
   defp validate!(%__MODULE__{} = outbound) do
-    unless not is_nil(outbound.endpoint),
-      do: raise(ArgumentError, "outbound endpoint is required")
+    if is_nil(outbound.endpoint), do: raise(ArgumentError, "outbound endpoint is required")
 
-    unless not is_nil(outbound.to), do: raise(ArgumentError, "outbound target is required")
+    if is_nil(outbound.to), do: raise(ArgumentError, "outbound target is required")
     unless match?(%Content{}, outbound.content), do: raise(ArgumentError, "content is required")
 
     unless is_binary(outbound.idempotency_key) and outbound.idempotency_key != "",

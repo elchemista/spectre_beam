@@ -507,15 +507,20 @@ defmodule Spectre.Beam.Runtime do
 
   @spec store(Endpoint.t(), :inbound | :outbound, keyword()) :: {module(), keyword()}
   defp store(endpoint, kind, opts) do
-    configured =
-      case kind do
-        :inbound ->
-          Keyword.get(opts, :deduplicator) || endpoint.metadata.deduplicator
+    endpoint
+    |> configured_store(kind, opts)
+    |> normalize_store()
+  end
 
-        :outbound ->
-          Keyword.get(opts, :idempotency_store) || endpoint.metadata.idempotency_store
-      end
+  @spec configured_store(Endpoint.t(), :inbound | :outbound, keyword()) :: term()
+  defp configured_store(endpoint, :inbound, opts),
+    do: Keyword.get(opts, :deduplicator) || endpoint.metadata.deduplicator
 
+  defp configured_store(endpoint, :outbound, opts),
+    do: Keyword.get(opts, :idempotency_store) || endpoint.metadata.idempotency_store
+
+  @spec normalize_store(term()) :: {module(), keyword()}
+  defp normalize_store(configured) do
     case configured do
       nil -> {Store, []}
       module when is_atom(module) -> {module, []}

@@ -26,12 +26,7 @@ defmodule Spectre.Beam.ActionProvider do
 
     with {:ok, capabilities} <- Endpoint.capabilities(endpoint) do
       capabilities
-      |> Enum.flat_map(fn capability ->
-        case Map.fetch(@capability_operations, capability) do
-          {:ok, operation} -> [spec(endpoint, operation)]
-          :error -> []
-        end
-      end)
+      |> Enum.flat_map(&capability_spec(&1, endpoint))
       |> Enum.sort_by(& &1.name)
     end
   end
@@ -100,6 +95,14 @@ defmodule Spectre.Beam.ActionProvider do
   end
 
   defp visibility(%Endpoint{}, _operation), do: :deterministic
+
+  @spec capability_spec(atom(), Endpoint.t()) :: [Spec.t()]
+  defp capability_spec(capability, endpoint) do
+    case Map.fetch(@capability_operations, capability) do
+      {:ok, operation} -> [spec(endpoint, operation)]
+      :error -> []
+    end
+  end
 
   @spec schema(atom()) :: map()
   defp schema(:send_text) do
