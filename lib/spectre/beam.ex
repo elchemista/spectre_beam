@@ -10,13 +10,13 @@ defmodule Spectre.Beam do
 
   alias Spectre.Stack.DSL
 
-  @version "0.1.3"
+  @version "0.1.4"
 
   use Spectre.Stack.Installable,
     id: :beam,
     version: @version,
     contract: 1,
-    spectre: "~> 0.1.3",
+    spectre: "~> 0.1.4",
     provides: [{:service, :beam}],
     agent_extensions: [Spectre.Beam.Extension],
     dsl: __MODULE__
@@ -116,6 +116,22 @@ defmodule Spectre.Beam do
   defdelegate to_input(inbound), to: Spectre.Beam.Runtime
 
   @doc """
+  Converts an authenticated Beam inbound into an opaque core identity.
+
+  The sender is never treated as a Subject. It is reduced to a
+  `Spectre.ExternalIdentity` that must already have an explicit link in the
+  core Subject Registry before it can reach an Agent Instance.
+  """
+  defdelegate external_identity(inbound, opts \\ []), to: Spectre.Beam.Identity
+
+  @doc """
+  Resolves an authenticated inbound through the core Subject Registry and
+  starts or returns the unique Instance for the linked Subject.
+  """
+  defdelegate resolve_instance(supervisor, agent, inbound, opts \\ []),
+    to: Spectre.Beam.Identity
+
+  @doc """
   Delivers the observable reply boundary from a turn through the inbound
   endpoint.
   """
@@ -125,6 +141,17 @@ defmodule Spectre.Beam do
   Runs decode, deduplication, `Spectre.turn/3`, and reactive delivery.
   """
   defdelegate handle(agent_or_session, endpoint, event, opts \\ []),
+    to: Spectre.Beam.Runtime
+
+  @doc """
+  Runs the identity-safe multichannel path.
+
+  It decodes and authenticates the inbound, resolves its exact
+  `Spectre.ExternalIdentity` through `Spectre.Subject.Registry`, routes to the
+  corresponding `Spectre.Instance`, and returns at the ordinary public Turn
+  boundary. An unlinked identity fails closed.
+  """
+  defdelegate handle_instance(supervisor, agent, endpoint, event, opts \\ []),
     to: Spectre.Beam.Runtime
 
   @doc """

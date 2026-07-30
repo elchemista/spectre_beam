@@ -603,7 +603,8 @@ defmodule Spectre.Beam.BoundaryContractTest do
     assert DateTime.compare(Common.occurred_at(unix_seconds * 1_000), now) == :eq
     assert Common.occurred_at(99_999_999_999_999_999_999) == nil
     assert Common.occurred_at(:invalid) == nil
-    assert Common.authenticated?([]) == true
+    assert Common.authenticated?([]) == false
+    assert Common.authenticated?(authenticated?: true) == true
     assert Common.authenticated?(authenticated?: false) == false
     assert Common.client(client: :client) == {:ok, :client}
     assert Common.client(session: :session) == {:ok, :session}

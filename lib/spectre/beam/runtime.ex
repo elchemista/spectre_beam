@@ -3,10 +3,12 @@ defmodule Spectre.Beam.Runtime do
   High-level and primitive Beam runtime operations.
   """
 
+  alias Spectre.AgentRef
   alias Spectre.Beam.Config
   alias Spectre.Beam.Content
   alias Spectre.Beam.Endpoint
   alias Spectre.Beam.Exchange
+  alias Spectre.Beam.Identity
   alias Spectre.Beam.Inbound
   alias Spectre.Beam.Outbound
   alias Spectre.Beam.Pipeline
@@ -14,6 +16,7 @@ defmodule Spectre.Beam.Runtime do
   alias Spectre.Beam.Store
   alias Spectre.Input
   alias Spectre.Input.Source
+  alias Spectre.Instance
   alias Spectre.Result
   alias Spectre.Run.Ref
   alias Spectre.Turn
@@ -102,6 +105,34 @@ defmodule Spectre.Beam.Runtime do
   end
 
   @doc """
+  Handles one provider event through the explicit Subject/Instance boundary.
+
+  Unlike `handle/4`, this path never treats a channel conversation or sender
+  as Spectre state ownership. The authenticated external identity must already
+  resolve to a canonical Subject in the core registry.
+  """
+  @spec handle_instance(
+          GenServer.server(),
+          module() | AgentRef.t(),
+          term(),
+          term(),
+          keyword()
+        ) :: {:ok, Exchange.t()} | :ignore | {:error, term()}
+  def handle_instance(supervisor, agent_or_ref, endpoint_id, event, opts \\ [])
+      when is_list(opts) do
+    with {:ok, agent} <- agent_definition(agent_or_ref),
+         {:ok, inbound} <- normalize_decode(decode(agent, endpoint_id, event, opts)),
+         {:ok, instance} <-
+           Identity.resolve_instance(supervisor, agent_or_ref, inbound, opts) do
+      instance_scope = {:instance, Instance.ref(instance).key}
+      handle_inbound(instance, agent, inbound, opts, instance_turn_opts(opts), instance_scope)
+    else
+      :ignore -> :ignore
+      {:error, _reason} = error -> error
+    end
+  end
+
+  @doc """
   Subscribes the calling process through an endpoint adapter, when supported.
   """
   @spec subscribe(module(), term(), keyword()) :: :ok | {:error, term()}
@@ -150,13 +181,34 @@ defmodule Spectre.Beam.Runtime do
           keyword()
         ) :: {:ok, Exchange.t()} | {:error, term()}
   defp handle_inbound(agent_or_session, agent, inbound, opts) do
+    handle_inbound(agent_or_session, agent, inbound, opts, opts, nil)
+  end
+
+  @spec handle_inbound(
+          module() | GenServer.server(),
+          module(),
+          Inbound.t(),
+          keyword(),
+          keyword(),
+          term()
+        ) :: {:ok, Exchange.t()} | {:error, term()}
+  defp handle_inbound(agent_or_session, agent, inbound, opts, turn_opts, scope) do
     with {:ok, endpoint} <- endpoint(agent, inbound.endpoint) do
       store = store(endpoint, :inbound, opts)
-      key = {:inbound, Inbound.key(inbound)}
+      key = inbound_claim_key(inbound, scope)
 
       case store_call(store, :claim, [key]) do
         :ok ->
-          run_claimed_turn(agent_or_session, agent, endpoint, inbound, opts, store, key)
+          run_claimed_turn(
+            agent_or_session,
+            agent,
+            endpoint,
+            inbound,
+            opts,
+            turn_opts,
+            store,
+            key
+          )
 
         {:duplicate, %Exchange{} = exchange} ->
           resume_exchange(agent, endpoint, %{exchange | duplicate?: true}, opts, store, key)
@@ -176,14 +228,24 @@ defmodule Spectre.Beam.Runtime do
           Endpoint.t(),
           Inbound.t(),
           keyword(),
+          keyword(),
           {module(), keyword()},
           term()
         ) :: {:ok, Exchange.t()} | {:error, term()}
-  defp run_claimed_turn(agent_or_session, agent, endpoint, inbound, opts, store, key) do
+  defp run_claimed_turn(
+         agent_or_session,
+         agent,
+         endpoint,
+         inbound,
+         opts,
+         turn_opts,
+         store,
+         key
+       ) do
     input = to_input(inbound)
 
     turn_opts =
-      opts
+      turn_opts
       |> Keyword.put(:conversation_id, Inbound.conversation_key(inbound))
       |> Keyword.delete(:adapter_opts)
 
@@ -199,6 +261,24 @@ defmodule Spectre.Beam.Runtime do
         _released = store_call(store, :release, [key])
         {:error, reason}
     end
+  end
+
+  @spec inbound_claim_key(Inbound.t(), term()) :: term()
+  defp inbound_claim_key(inbound, nil), do: {:inbound, Inbound.key(inbound)}
+
+  defp inbound_claim_key(inbound, scope),
+    do: {:inbound, scope, Inbound.conversation_key(inbound), Inbound.key(inbound)}
+
+  @spec instance_turn_opts(keyword()) :: keyword()
+  defp instance_turn_opts(opts) do
+    Keyword.drop(opts, [
+      :authenticated_at,
+      :proof_ref,
+      :identity_metadata,
+      :subject_registry,
+      :instance_registry,
+      :instance_opts
+    ])
   end
 
   @spec resume_exchange(
@@ -392,6 +472,19 @@ defmodule Spectre.Beam.Runtime do
   catch
     _kind, _reason -> {:error, {:invalid_spectre_session, session}}
   end
+
+  @spec agent_definition(module() | AgentRef.t()) :: {:ok, module()} | {:error, term()}
+  defp agent_definition(%AgentRef{} = ref) do
+    case AgentRef.validate(ref) do
+      :ok -> {:ok, ref.definition}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp agent_definition(agent) when is_atom(agent) and not is_nil(agent),
+    do: {:ok, agent}
+
+  defp agent_definition(agent), do: {:error, {:invalid_beam_agent_ref, agent}}
 
   @spec validate_outbound_capability(Endpoint.t(), Outbound.t()) :: :ok | {:error, term()}
   defp validate_outbound_capability(endpoint, outbound) do
