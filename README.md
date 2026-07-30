@@ -76,8 +76,9 @@ Provider clients and subscriptions remain caller-owned runtime values:
 
 ## Subject-scoped Agent Instances
 
-Version 0.1.4 adds an explicit identity-safe path for multichannel
-continuity. Beam authenticates and normalizes the provider principal into a
+Version 0.1.5 keeps the explicit identity-safe path for multichannel
+continuity and routes each channel conversation into the matching core Run.
+Beam authenticates and normalizes the provider principal into a
 `Spectre.ExternalIdentity`; the core Subject Registry must already contain an
 explicit link before the inbound can reach an Agent Instance:
 
