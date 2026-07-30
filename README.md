@@ -74,6 +74,54 @@ Provider clients and subscriptions remain caller-owned runtime values:
   )
 ```
 
+## Subject-scoped Agent Instances
+
+Version 0.1.4 adds an explicit identity-safe path for multichannel
+continuity. Beam authenticates and normalizes the provider principal into a
+`Spectre.ExternalIdentity`; the core Subject Registry must already contain an
+explicit link before the inbound can reach an Agent Instance:
+
+```elixir
+verified? = MyApp.TelegramAuth.verify(raw_update)
+
+{:ok, inbound} =
+  Spectre.Beam.decode(MyApp.Agent, :telegram, raw_update,
+    adapter_opts: [authenticated?: verified?]
+  )
+{:ok, external_identity} =
+  Spectre.Beam.external_identity(inbound,
+    authenticated_at: System.system_time(:millisecond),
+    proof_ref: provider_signature_id
+  )
+
+{:ok, _link} =
+  Spectre.Subject.Registry.bind(
+    Spectre.Subject.Registry,
+    MyApp.Agent,
+    Spectre.Subject.new(account.id),
+    external_identity,
+    proof: verified_enrollment_id
+  )
+
+{:ok, exchange} =
+  Spectre.Beam.handle_instance(
+    MyApp.SpectreSupervisor,
+    MyApp.Agent,
+    :telegram,
+    raw_update,
+    adapter_opts: [client: telegram_session, authenticated?: verified?]
+  )
+```
+
+`handle_instance/5` fails closed for an unauthenticated or unlinked identity.
+The built-in adapters default `authenticated?` to `false`; the host may set it
+to `true` only after its provider authentication step succeeds.
+It never derives a Subject from a conversation id, sender similarity, display
+name, address book, message text, or model decision. Linking another channel
+uses the core `LinkIntent` challenge flow; Beam only transports that proof.
+The existing `handle/4` API remains available for stateless and legacy
+caller-owned Session integrations.
+
 Beam delivers only an observable
 `{:reply, output, %Spectre.Run.Ref{}}` boundary. Policy and invocation
 boundaries (`{:needs, boundary}` and `{:awaiting, invocation_ref}`) are

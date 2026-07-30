@@ -58,7 +58,7 @@ defmodule Spectre.Beam.Adapters.Common do
   def occurred_at(_value), do: nil
 
   @spec authenticated?(keyword()) :: boolean()
-  def authenticated?(opts), do: Keyword.get(opts, :authenticated?, true) == true
+  def authenticated?(opts), do: Keyword.get(opts, :authenticated?, false) == true
 
   @spec client(keyword()) :: {:ok, term()} | {:error, :missing_beam_adapter_client}
   def client(opts) do
