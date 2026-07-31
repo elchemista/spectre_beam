@@ -10,7 +10,7 @@ defmodule Spectre.Beam do
 
   alias Spectre.Stack.DSL
 
-  @version "0.1.5"
+  @version "0.1.6"
 
   use Spectre.Stack.Installable,
     id: :beam,
