@@ -4,6 +4,19 @@
 normalizes inbound provider events, preserves endpoint/conversation affinity
 for replies, and contributes policy-controlled proactive delivery actions.
 
+The exact `0.1.6` compatibility surface is published in the
+[public API manifest](docs/PUBLIC_API.md).
+
+## 0.1.6 Recoverable Baseline
+
+Version `0.1.6` is a consolidation-only release with no new runtime feature and
+no intentional breaking change. Elixir 1.19 on Erlang/OTP 28 is the initially
+guaranteed pair. Uniform CI runs format, warnings-as-errors compilation, tests,
+non-strict Credo, Dialyzer, ExDoc, and local package validation with no
+publication. The permanent Beam
+exchange fixture under `test/fixtures/compatibility/0.1.6` freezes the handoff
+shape used by the future `0.2.0` work.
+
 ## Installation
 
 The project is distributed from GitHub:
@@ -76,7 +89,7 @@ Provider clients and subscriptions remain caller-owned runtime values:
 
 ## Subject-scoped Agent Instances
 
-Version 0.1.5 keeps the explicit identity-safe path for multichannel
+Version 0.1.6 keeps the explicit identity-safe path for multichannel
 continuity and routes each channel conversation into the matching core Run.
 Beam authenticates and normalizes the provider principal into a
 `Spectre.ExternalIdentity`; the core Subject Registry must already contain an
