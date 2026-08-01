@@ -23,6 +23,12 @@ All notable changes to Spectre Beam are documented in this file.
 - Text deliveries now forward `send_opts` when the provider module exports
   the wider send arity (`send_message/4`, `send_message_await/5`), fixing the
   silent drop of `parse_mode`/`reply_to` options on plain text sends.
+- `send_await:` adapter option on the ExWapp adapter: a
+  `(client, to, text, timeout, send_opts)` function the host supplies when
+  its provider version has no awaited-send arity that carries send options.
+  An awaited send with options and no capable provider function is a
+  `{:beam_provider_callback_missing, module, :send_message_await, 5}` error —
+  never a silent drop of `retry_message_id:`.
 
 ### Changed
 
