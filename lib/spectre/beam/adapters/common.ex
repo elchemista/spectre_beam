@@ -117,6 +117,31 @@ defmodule Spectre.Beam.Adapters.Common do
 
   def content(_kind, _data, _text, _metadata), do: :ignore
 
+  @doc """
+  Calls a provider send function, appending `send_opts` only when the provider
+  exports the wider arity. Keeps compatibility with providers that expose only
+  the plain `fun(client, to, value)` shape.
+  """
+  @spec call_send(module(), atom(), list(), keyword()) :: term()
+  def call_send(module, function, args, send_opts) do
+    if send_opts != [] and Code.ensure_loaded?(module) and
+         function_exported?(module, function, length(args) + 1) do
+      apply(module, function, args ++ [send_opts])
+    else
+      call(module, function, args)
+    end
+  end
+
+  @spec typing(module(), keyword(), term(), boolean()) :: :ok | {:error, term()}
+  def typing(module, opts, to, composing?) do
+    with {:ok, provider} <- provider_module(opts, module),
+         {:ok, client} <- client(opts) do
+      provider
+      |> call(:send_typing, [client, to, composing?])
+      |> normalize_lifecycle_reply()
+    end
+  end
+
   @spec send_options(Outbound.t(), keyword()) :: keyword()
   def send_options(%Outbound{} = outbound, adapter_opts) do
     data_opts =

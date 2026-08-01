@@ -13,6 +13,7 @@ defmodule Spectre.Beam.Runtime do
   alias Spectre.Beam.Exchange
   alias Spectre.Beam.Identity
   alias Spectre.Beam.Inbound
+  alias Spectre.Beam.Logistics
   alias Spectre.Beam.Outbound
   alias Spectre.Beam.Pipeline
   alias Spectre.Beam.Receipt
@@ -412,7 +413,11 @@ defmodule Spectre.Beam.Runtime do
     with {:ok, prepared} <- run_pipeline(endpoint, :before_deliver, outbound, opts),
          :ok <- validate_pipeline_outbound(prepared, outbound, endpoint),
          :ok <- validate_outbound_capability(endpoint, prepared),
-         {:ok, receipt} <- call_deliver(endpoint, prepared, opts),
+         :ok <- Logistics.before_deliver(endpoint, prepared, opts),
+         {:ok, receipt} <-
+           Logistics.deliver_with_retry(endpoint, opts, fn _attempt ->
+             call_deliver(endpoint, prepared, opts)
+           end),
          {:ok, receipt} <- run_pipeline(endpoint, :after_deliver, receipt, opts),
          :ok <- validate_pipeline_receipt(receipt, prepared, endpoint),
          :ok <- store_call(store, :complete, [key, receipt]) do
