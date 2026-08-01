@@ -4,8 +4,15 @@
 normalizes inbound provider events, preserves endpoint/conversation affinity
 for replies, and contributes policy-controlled proactive delivery actions.
 
-The exact `0.1.6` compatibility surface is published in the
+The exact `0.2.0` compatibility surface is published in the
 [public API manifest](docs/PUBLIC_API.md).
+
+## 0.2.0 Spectre Compatibility
+
+Version `0.2.0` aligns Beam's package and Stack contracts with Spectre
+`~> 0.2.0`. The channel, identity, reactive reply, and proactive Effect
+boundaries remain unchanged; the permanent `0.1.6` exchange fixture continues
+to verify their recovery shape against the new core runtime.
 
 ## 0.1.6 Recoverable Baseline
 
@@ -89,7 +96,7 @@ Provider clients and subscriptions remain caller-owned runtime values:
 
 ## Subject-scoped Agent Instances
 
-Version 0.1.6 keeps the explicit identity-safe path for multichannel
+Version 0.2.0 keeps the explicit identity-safe path for multichannel
 continuity and routes each channel conversation into the matching core Run.
 Beam authenticates and normalizes the provider principal into a
 `Spectre.ExternalIdentity`; the core Subject Registry must already contain an
