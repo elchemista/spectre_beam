@@ -148,19 +148,20 @@ defmodule Spectre.Beam.Throttle.Local do
   defp conversation_interval(config) do
     per_conversation = Keyword.get(config, :per_conversation, [])
 
-    if is_list(per_conversation) and Keyword.keyword?(per_conversation) do
-      case positive_integer(Keyword.get(per_conversation, :min_delay_ms), 0) do
-        0 ->
-          case positive_number(Keyword.get(per_conversation, :messages_per_minute)) do
-            nil -> 0
-            per_minute -> ceil(60_000 / per_minute)
-          end
+    if is_list(per_conversation) and Keyword.keyword?(per_conversation),
+      do: configured_conversation_interval(per_conversation),
+      else: 0
+  end
 
-        interval ->
-          interval
-      end
-    else
-      0
+  @spec configured_conversation_interval(keyword()) :: non_neg_integer()
+  defp configured_conversation_interval(per_conversation) do
+    min_delay = positive_integer(Keyword.get(per_conversation, :min_delay_ms), 0)
+    per_minute = positive_number(Keyword.get(per_conversation, :messages_per_minute))
+
+    cond do
+      min_delay > 0 -> min_delay
+      is_number(per_minute) -> ceil(60_000 / per_minute)
+      true -> 0
     end
   end
 

@@ -212,7 +212,7 @@ defmodule Spectre.Beam.Logistics do
     end
   end
 
-  @spec positive_integer(term(), pos_integer()) :: pos_integer()
+  @spec positive_integer(term(), non_neg_integer()) :: non_neg_integer()
   defp positive_integer(value, _default) when is_integer(value) and value > 0, do: value
   defp positive_integer(_value, default), do: default
 end
