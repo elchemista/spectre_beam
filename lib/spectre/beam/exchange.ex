@@ -7,8 +7,8 @@ defmodule Spectre.Beam.Exchange do
 
   @type t :: %__MODULE__{
           inbound: Spectre.Beam.Inbound.t(),
-          input: Spectre.Input.t(),
-          turn: Spectre.Turn.t(),
+          input: term(),
+          turn: term(),
           receipt: Spectre.Beam.Receipt.t() | nil,
           duplicate?: boolean(),
           metadata: map()

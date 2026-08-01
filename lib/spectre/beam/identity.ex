@@ -1,46 +1,40 @@
 defmodule Spectre.Beam.Identity do
   @moduledoc """
-  Explicit bridge from authenticated channel principals to Agent Instances.
+  Explicit bridge from authenticated channel principals to Spectre Instances.
 
-  Beam proves and normalizes the external identity. The Spectre core remains
-  the only authority that links that identity to a canonical Subject and owns
-  the resulting Instance. Conversation ids, display names, phone-number
-  similarity, message content, and model output are never identity evidence.
+  Core modules are invoked only when this boundary is used. This keeps Beam's
+  dependency graph standalone while preserving Spectre's identity authority.
   """
 
-  alias Spectre.AgentRef
   alias Spectre.Beam.Inbound
-  alias Spectre.ExternalIdentity
-  alias Spectre.Instance.Registry, as: InstanceRegistry
-  alias Spectre.Run.Value
-  alias Spectre.Subject.Registry, as: SubjectRegistry
 
-  @doc """
-  Builds an opaque core identity from an authenticated Beam inbound.
+  @agent_ref :"Elixir.Spectre.AgentRef"
+  @external_identity :"Elixir.Spectre.ExternalIdentity"
+  @instance_registry :"Elixir.Spectre.Instance.Registry"
+  @run_value :"Elixir.Spectre.Run.Value"
+  @subject_registry :"Elixir.Spectre.Subject.Registry"
 
-  `:authenticated_at`, `:proof_ref`, and `:identity_metadata` describe the
-  channel authentication event. The raw sender is used only while deriving
-  the opaque core identity and is not retained by `ExternalIdentity`.
-  """
-  @spec external_identity(Inbound.t(), keyword()) ::
-          {:ok, ExternalIdentity.t()} | {:error, term()}
+  @spec external_identity(Inbound.t(), keyword()) :: {:ok, term()} | {:error, term()}
   def external_identity(inbound, opts \\ [])
 
   def external_identity(%Inbound{} = inbound, opts) when is_list(opts) do
     with :ok <- authenticated(inbound),
          :ok <- sender_present(inbound),
          {:ok, authenticated_at} <- authenticated_at(opts),
-         {:ok, metadata} <- identity_metadata(opts) do
+         {:ok, metadata} <- identity_metadata(opts),
+         :ok <- ensure_core(@external_identity) do
       identity =
-        ExternalIdentity.new(
-          provider: :beam,
-          channel: inbound.channel_type,
-          endpoint: inbound.endpoint,
-          principal_id: inbound.sender,
-          authenticated_at: authenticated_at,
-          proof_ref: Keyword.get(opts, :proof_ref),
-          metadata: metadata
-        )
+        apply(@external_identity, :new, [
+          [
+            provider: :beam,
+            channel: inbound.channel_type,
+            endpoint: inbound.endpoint,
+            principal_id: inbound.sender,
+            authenticated_at: authenticated_at,
+            proof_ref: Keyword.get(opts, :proof_ref),
+            metadata: metadata
+          ]
+        ])
 
       {:ok, identity}
     end
@@ -52,36 +46,27 @@ defmodule Spectre.Beam.Identity do
   def external_identity(inbound, _opts),
     do: {:error, {:invalid_beam_identity_inbound, inbound}}
 
-  @doc """
-  Resolves an inbound to the unique local Instance for its linked Subject.
-
-  The function never creates a Subject link. Bootstrap and channel-link
-  confirmation must happen through `Spectre.Subject.Registry` before this
-  boundary is called.
-  """
-  @spec resolve_instance(
-          GenServer.server(),
-          module() | AgentRef.t(),
-          Inbound.t(),
-          keyword()
-        ) :: {:ok, pid()} | {:error, term()}
+  @spec resolve_instance(GenServer.server(), module() | map(), Inbound.t(), keyword()) ::
+          {:ok, pid()} | {:error, term()}
   def resolve_instance(supervisor, agent, inbound, opts \\ [])
 
-  def resolve_instance(supervisor, agent, %Inbound{} = inbound, opts)
-      when is_list(opts) do
-    subject_registry = Keyword.get(opts, :subject_registry, SubjectRegistry)
-    instance_registry = Keyword.get(opts, :instance_registry, InstanceRegistry)
+  def resolve_instance(supervisor, agent, %Inbound{} = inbound, opts) when is_list(opts) do
+    subject_registry_server = Keyword.get(opts, :subject_registry, @subject_registry)
+    instance_registry_name = Keyword.get(opts, :instance_registry, @instance_registry)
 
     with {:ok, agent_ref} <- normalize_agent_ref(agent),
          {:ok, identity} <- external_identity(inbound, opts),
+         :ok <- ensure_core(@subject_registry),
          {:ok, subject, _link} <-
-           SubjectRegistry.resolve(subject_registry, agent_ref, identity) do
-      supervisor
-      |> InstanceRegistry.ensure_started(
+           apply(@subject_registry, :resolve, [subject_registry_server, agent_ref, identity]),
+         :ok <- ensure_core(@instance_registry) do
+      @instance_registry
+      |> apply(:ensure_started, [
+        supervisor,
         agent_ref,
         subject,
-        instance_opts(opts, instance_registry)
-      )
+        instance_opts(opts, instance_registry_name)
+      ])
       |> normalize_instance_start()
     end
   end
@@ -89,16 +74,18 @@ defmodule Spectre.Beam.Identity do
   def resolve_instance(_supervisor, _agent, inbound, _opts),
     do: {:error, {:invalid_beam_identity_inbound, inbound}}
 
-  @spec normalize_agent_ref(module() | AgentRef.t()) :: {:ok, AgentRef.t()} | {:error, term()}
-  defp normalize_agent_ref(%AgentRef{} = ref) do
-    case AgentRef.validate(ref) do
+  @spec normalize_agent_ref(module() | map()) :: {:ok, map()} | {:error, term()}
+  defp normalize_agent_ref(%{__struct__: @agent_ref} = ref) do
+    case apply(@agent_ref, :validate, [ref]) do
       :ok -> {:ok, ref}
       {:error, reason} -> {:error, reason}
     end
   end
 
   defp normalize_agent_ref(agent) when is_atom(agent) and not is_nil(agent) do
-    {:ok, AgentRef.new(agent)}
+    with :ok <- ensure_core(@agent_ref) do
+      {:ok, apply(@agent_ref, :new, [agent])}
+    end
   rescue
     exception in ArgumentError ->
       {:error, {:invalid_beam_agent_ref, Exception.message(exception)}}
@@ -121,9 +108,11 @@ defmodule Spectre.Beam.Identity do
   end
 
   defp sender_present(%Inbound{sender: sender}) do
-    case Value.validate(sender, [:beam, :external_identity, :sender]) do
-      :ok -> :ok
-      {:error, reason} -> {:error, {:invalid_beam_external_identity_sender, reason}}
+    with :ok <- ensure_core(@run_value) do
+      case apply(@run_value, :validate, [sender, [:beam, :external_identity, :sender]]) do
+        :ok -> :ok
+        {:error, reason} -> {:error, {:invalid_beam_external_identity_sender, reason}}
+      end
     end
   end
 
@@ -161,4 +150,9 @@ defmodule Spectre.Beam.Identity do
   defp normalize_instance_start({:ok, pid, _info}) when is_pid(pid), do: {:ok, pid}
   defp normalize_instance_start({:error, _reason} = error), do: error
   defp normalize_instance_start(:ignore), do: {:error, :beam_instance_start_ignored}
+
+  @spec ensure_core(module()) :: :ok | {:error, :spectre_not_available}
+  defp ensure_core(module) do
+    if Code.ensure_loaded?(module), do: :ok, else: {:error, :spectre_not_available}
+  end
 end

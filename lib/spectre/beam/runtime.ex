@@ -1,9 +1,12 @@
 defmodule Spectre.Beam.Runtime do
   @moduledoc """
-  High-level and primitive Beam runtime operations.
+  Executes Beam provider boundaries and the optional Spectre turn bridge.
+
+  All references to Spectre core are late-bound. The module therefore compiles
+  and its provider primitives work when `:spectre` is not installed, while a
+  host that installs both libraries gets the complete Agent integration.
   """
 
-  alias Spectre.AgentRef
   alias Spectre.Beam.Config
   alias Spectre.Beam.Content
   alias Spectre.Beam.Endpoint
@@ -14,19 +17,38 @@ defmodule Spectre.Beam.Runtime do
   alias Spectre.Beam.Pipeline
   alias Spectre.Beam.Receipt
   alias Spectre.Beam.Store
-  alias Spectre.Input
-  alias Spectre.Input.Source
-  alias Spectre.Instance
-  alias Spectre.Result
-  alias Spectre.Run.Ref
-  alias Spectre.Turn
 
-  @spec decode(module(), term(), term(), keyword()) ::
+  @spectre :"Elixir.Spectre"
+  @agent_ref :"Elixir.Spectre.AgentRef"
+  @identity :"Elixir.Spectre.Identity"
+  @instance :"Elixir.Spectre.Instance"
+  @journal :"Elixir.Spectre.Journal"
+  @result :"Elixir.Spectre.Result"
+  @run_ref :"Elixir.Spectre.Run.Ref"
+  @session :"Elixir.Spectre.Session"
+  @turn :"Elixir.Spectre.Turn"
+  @input :"Elixir.Spectre.Input"
+
+  @spec decode(Config.t() | module(), term(), term(), keyword()) ::
           {:ok, Inbound.t()} | :ignore | {:error, term()}
-  def decode(agent, endpoint_id, event, opts \\ [])
-      when is_atom(agent) and is_list(opts) do
-    with {:ok, endpoint} <- endpoint(agent, endpoint_id),
-         :ok <- validate_event_size(event, endpoint, opts),
+  def decode(config_or_agent, endpoint_id, event, opts \\ [])
+
+  def decode(%Config{} = config, endpoint_id, event, opts) when is_list(opts) do
+    with {:ok, endpoint} <- Config.fetch(config, endpoint_id) do
+      decode_endpoint(endpoint, event, opts)
+    end
+  end
+
+  def decode(agent, endpoint_id, event, opts) when is_atom(agent) and is_list(opts) do
+    with {:ok, endpoint} <- endpoint(agent, endpoint_id) do
+      decode_endpoint(endpoint, event, Keyword.put_new(opts, :agent, agent))
+    end
+  end
+
+  @spec decode_endpoint(Endpoint.t(), term(), keyword()) ::
+          {:ok, Inbound.t()} | :ignore | {:error, term()}
+  defp decode_endpoint(endpoint, event, opts) do
+    with :ok <- validate_event_size(event, endpoint, opts),
          {:ok, event} <- run_pipeline(endpoint, :before_decode, event, opts),
          {:ok, inbound} <- call_decode(endpoint, event, opts),
          {:ok, inbound} <- normalize_inbound(inbound, endpoint),
@@ -39,15 +61,16 @@ defmodule Spectre.Beam.Runtime do
     end
   end
 
-  @spec to_input(Inbound.t()) :: Input.t()
+  @doc false
+  @spec to_input(Inbound.t()) :: term()
   def to_input(%Inbound{} = inbound) do
     content = inbound.content
 
-    %Input{
+    attrs = %{
       text: content.text || "",
       raw: inbound,
       meta: %{},
-      source: %Source{
+      source: %{
         kind: :beam,
         mount: inbound.endpoint,
         conversation_id: inbound.conversation_id,
@@ -60,37 +83,66 @@ defmodule Spectre.Beam.Runtime do
         }
       }
     }
+
+    if Code.ensure_loaded?(@input) and function_exported?(@input, :new, 1) do
+      apply(@input, :new, [attrs])
+    else
+      raise ArgumentError, "Spectre is required to convert a Beam inbound into Spectre.Input"
+    end
   end
 
-  @spec reply(module(), Inbound.t(), Result.t() | Turn.t(), keyword()) ::
+  @spec reply(module(), Inbound.t(), term(), keyword()) ::
           {:ok, Receipt.t() | nil} | {:error, term()}
-  def reply(
-        agent,
-        %Inbound{} = inbound,
-        %Turn{observable: {:reply, output, %Ref{} = ref}},
-        opts
-      )
-      when is_binary(output) and is_list(opts),
-      do: deliver_reply(agent, inbound, output, reply_key(ref), opts)
+  def reply(agent, inbound, turn, opts \\ [])
 
-  def reply(
+  def reply(agent, %Inbound{} = inbound, turn, opts)
+      when is_atom(agent) and is_map(turn) and is_list(opts) do
+    cond do
+      core_struct?(turn, @turn) ->
+        reply_turn(agent, inbound, turn, opts)
+
+      core_struct?(turn, @result) ->
+        {:error, :beam_turn_boundary_required}
+
+      true ->
+        {:error, {:invalid_beam_turn, turn}}
+    end
+  end
+
+  @spec reply_turn(module(), Inbound.t(), map(), keyword()) ::
+          {:ok, Receipt.t() | nil} | {:error, term()}
+  defp reply_turn(agent, inbound, turn, opts) do
+    case Map.get(turn, :observable) do
+      {:reply, output, ref} when is_binary(output) and is_map(ref) ->
+        if core_struct?(ref, @run_ref),
+          do: deliver_reply(agent, inbound, output, reply_key(ref), opts),
+          else: {:ok, nil}
+
+      nil ->
+        legacy_reply(agent, inbound, Map.get(turn, :decision), opts)
+
+      _other ->
+        {:ok, nil}
+    end
+  end
+
+  @spec legacy_reply(module(), Inbound.t(), term(), keyword()) ::
+          {:ok, Receipt.t() | nil} | {:error, term()}
+  defp legacy_reply(agent, inbound, {:reply, result}, opts) when is_map(result) do
+    if core_struct?(result, @result) and visible_reply?(result) do
+      deliver_reply(
         agent,
-        %Inbound{} = inbound,
-        %Turn{observable: nil, decision: {:reply, %Result{} = result}},
+        inbound,
+        Map.get(result, :reply_text),
+        legacy_reply_key(result, inbound),
         opts
       )
-      when is_list(opts) do
-    if Result.visible_reply?(result) do
-      deliver_reply(agent, inbound, result.reply_text, legacy_reply_key(result, inbound), opts)
     else
       {:ok, nil}
     end
   end
 
-  def reply(_agent, %Inbound{}, %Turn{}, opts) when is_list(opts), do: {:ok, nil}
-
-  def reply(_agent, %Inbound{}, %Result{}, opts) when is_list(opts),
-    do: {:error, :beam_turn_boundary_required}
+  defp legacy_reply(_agent, _inbound, _decision, _opts), do: {:ok, nil}
 
   @spec handle(module() | GenServer.server(), term(), term(), keyword()) ::
           {:ok, Exchange.t()} | :ignore | {:error, term()}
@@ -104,16 +156,9 @@ defmodule Spectre.Beam.Runtime do
     end
   end
 
-  @doc """
-  Handles one provider event through the explicit Subject/Instance boundary.
-
-  Unlike `handle/4`, this path never treats a channel conversation or sender
-  as Spectre state ownership. The authenticated external identity must already
-  resolve to a canonical Subject in the core registry.
-  """
   @spec handle_instance(
           GenServer.server(),
-          module() | AgentRef.t(),
+          module() | map(),
           term(),
           term(),
           keyword()
@@ -122,40 +167,32 @@ defmodule Spectre.Beam.Runtime do
       when is_list(opts) do
     with {:ok, agent} <- agent_definition(agent_or_ref),
          {:ok, inbound} <- normalize_decode(decode(agent, endpoint_id, event, opts)),
-         {:ok, instance} <-
-           Identity.resolve_instance(supervisor, agent_or_ref, inbound, opts) do
-      instance_scope = {:instance, Instance.ref(instance).key}
-      handle_inbound(instance, agent, inbound, opts, instance_turn_opts(opts), instance_scope)
+         {:ok, instance} <- Identity.resolve_instance(supervisor, agent_or_ref, inbound, opts),
+         {:ok, instance_key} <- instance_key(instance) do
+      scope = {:instance, instance_key}
+      handle_inbound(instance, agent, inbound, opts, instance_turn_opts(opts), scope)
     else
       :ignore -> :ignore
       {:error, _reason} = error -> error
     end
   end
 
-  @doc """
-  Subscribes the calling process through an endpoint adapter, when supported.
-  """
-  @spec subscribe(module(), term(), keyword()) :: :ok | {:error, term()}
-  def subscribe(agent, endpoint_id, opts \\ []) when is_atom(agent) and is_list(opts) do
-    with {:ok, endpoint} <- endpoint(agent, endpoint_id) do
-      call_lifecycle(endpoint, :subscribe, opts)
+  @spec deliver(Config.t(), term(), Outbound.t() | map() | keyword(), keyword()) ::
+          {:ok, Receipt.t()} | {:error, term()}
+  def deliver(%Config{} = config, endpoint_id, outbound, opts) when is_list(opts) do
+    with {:ok, endpoint} <- Config.fetch(config, endpoint_id),
+         {:ok, outbound} <- normalize_outbound(outbound, endpoint) do
+      deliver(endpoint, outbound, opts)
     end
   end
 
-  @doc """
-  Removes a subscription through an endpoint adapter, when supported.
-  """
-  @spec unsubscribe(module(), term(), keyword()) :: :ok | {:error, term()}
-  def unsubscribe(agent, endpoint_id, opts \\ []) when is_atom(agent) and is_list(opts) do
-    with {:ok, endpoint} <- endpoint(agent, endpoint_id) do
-      call_lifecycle(endpoint, :unsubscribe, opts)
-    end
-  end
+  def deliver(%Config{} = config, endpoint_id, outbound),
+    do: deliver(config, endpoint_id, outbound, [])
 
   @doc false
   @spec deliver(Endpoint.t(), Outbound.t(), keyword()) ::
           {:ok, Receipt.t()} | {:error, term()}
-  def deliver(%Endpoint{} = endpoint, %Outbound{} = outbound, opts \\ []) do
+  def deliver(%Endpoint{} = endpoint, %Outbound{} = outbound, opts) when is_list(opts) do
     store = store(endpoint, :outbound, opts)
     key = {:outbound, endpoint.id, outbound.idempotency_key}
 
@@ -174,12 +211,34 @@ defmodule Spectre.Beam.Runtime do
     end
   end
 
-  @spec handle_inbound(
-          module() | GenServer.server(),
-          module(),
-          Inbound.t(),
-          keyword()
-        ) :: {:ok, Exchange.t()} | {:error, term()}
+  @spec subscribe(Config.t() | module(), term(), keyword()) :: :ok | {:error, term()}
+  def subscribe(config_or_agent, endpoint_id, opts \\ [])
+
+  def subscribe(%Config{} = config, endpoint_id, opts) when is_list(opts) do
+    with {:ok, endpoint} <- Config.fetch(config, endpoint_id),
+         do: call_lifecycle(endpoint, :subscribe, opts)
+  end
+
+  def subscribe(agent, endpoint_id, opts) when is_atom(agent) and is_list(opts) do
+    with {:ok, endpoint} <- endpoint(agent, endpoint_id),
+         do: call_lifecycle(endpoint, :subscribe, opts)
+  end
+
+  @spec unsubscribe(Config.t() | module(), term(), keyword()) :: :ok | {:error, term()}
+  def unsubscribe(config_or_agent, endpoint_id, opts \\ [])
+
+  def unsubscribe(%Config{} = config, endpoint_id, opts) when is_list(opts) do
+    with {:ok, endpoint} <- Config.fetch(config, endpoint_id),
+         do: call_lifecycle(endpoint, :unsubscribe, opts)
+  end
+
+  def unsubscribe(agent, endpoint_id, opts) when is_atom(agent) and is_list(opts) do
+    with {:ok, endpoint} <- endpoint(agent, endpoint_id),
+         do: call_lifecycle(endpoint, :unsubscribe, opts)
+  end
+
+  @spec handle_inbound(module() | GenServer.server(), module(), Inbound.t(), keyword()) ::
+          {:ok, Exchange.t()} | {:error, term()}
   defp handle_inbound(agent_or_session, agent, inbound, opts) do
     handle_inbound(agent_or_session, agent, inbound, opts, opts, nil)
   end
@@ -249,17 +308,51 @@ defmodule Spectre.Beam.Runtime do
       |> Keyword.put(:conversation_id, Inbound.conversation_key(inbound))
       |> Keyword.delete(:adapter_opts)
 
-    case Spectre.turn(agent_or_session, input, turn_opts) do
-      {:ok, %Turn{} = turn} ->
-        exchange = %Exchange{inbound: inbound, input: input, turn: turn}
-
-        with :ok <- store_call(store, :complete, [key, exchange]) do
-          resume_exchange(agent, endpoint, exchange, opts, store, key)
-        end
+    case core_call(@spectre, :turn, [agent_or_session, input, turn_opts]) do
+      {:ok, turn} when is_map(turn) ->
+        persist_turn(turn, agent, endpoint, inbound, input, opts, store, key)
 
       {:error, reason} ->
-        _released = store_call(store, :release, [key])
-        {:error, reason}
+        release_with_error(store, key, reason)
+
+      other ->
+        release_with_error(store, key, {:invalid_spectre_turn_reply, other})
+    end
+  end
+
+  @spec persist_turn(
+          map(),
+          module(),
+          Endpoint.t(),
+          Inbound.t(),
+          term(),
+          keyword(),
+          {module(), keyword()},
+          term()
+        ) :: {:ok, Exchange.t()} | {:error, term()}
+  defp persist_turn(turn, agent, endpoint, inbound, input, opts, store, key) do
+    if core_struct?(turn, @turn) do
+      complete_turn_claim(turn, agent, endpoint, inbound, input, opts, store, key)
+    else
+      release_with_error(store, key, {:invalid_spectre_turn, turn})
+    end
+  end
+
+  @spec complete_turn_claim(
+          map(),
+          module(),
+          Endpoint.t(),
+          Inbound.t(),
+          term(),
+          keyword(),
+          {module(), keyword()},
+          term()
+        ) :: {:ok, Exchange.t()} | {:error, term()}
+  defp complete_turn_claim(turn, agent, endpoint, inbound, input, opts, store, key) do
+    exchange = %Exchange{inbound: inbound, input: input, turn: turn}
+
+    with :ok <- store_call(store, :complete, [key, exchange]) do
+      resume_exchange(agent, endpoint, exchange, opts, store, key)
     end
   end
 
@@ -313,13 +406,8 @@ defmodule Spectre.Beam.Runtime do
     end
   end
 
-  @spec deliver_claimed(
-          Endpoint.t(),
-          Outbound.t(),
-          keyword(),
-          {module(), keyword()},
-          term()
-        ) :: {:ok, Receipt.t()} | {:error, term()}
+  @spec deliver_claimed(Endpoint.t(), Outbound.t(), keyword(), {module(), keyword()}, term()) ::
+          {:ok, Receipt.t()} | {:error, term()}
   defp deliver_claimed(endpoint, outbound, opts, store, key) do
     with {:ok, prepared} <- run_pipeline(endpoint, :before_deliver, outbound, opts),
          :ok <- validate_pipeline_outbound(prepared, outbound, endpoint),
@@ -374,25 +462,33 @@ defmodule Spectre.Beam.Runtime do
         {:error, {:invalid_beam_adapter, endpoint.id, :deliver}}
 
       true ->
-        case endpoint.adapter.deliver(outbound, Endpoint.adapter_opts(endpoint, opts)) do
-          {:ok, %Receipt{} = receipt} ->
-            {:ok, normalize_receipt(receipt, endpoint, outbound)}
-
-          {:ok, receipt} when is_map(receipt) ->
-            {:ok, receipt |> Receipt.new() |> normalize_receipt(endpoint, outbound)}
-
-          {:error, _reason} = error ->
-            error
-
-          other ->
-            {:error, {:invalid_beam_delivery_reply, endpoint.id, other}}
-        end
+        normalize_delivery_reply(
+          endpoint.adapter.deliver(outbound, Endpoint.adapter_opts(endpoint, opts)),
+          endpoint,
+          outbound
+        )
     end
   rescue
     exception -> {:error, {:ambiguous, {:beam_delivery_exception, exception.__struct__}}}
   catch
     kind, reason -> {:error, {:ambiguous, {:beam_delivery_failure, kind, reason}}}
   end
+
+  @spec normalize_delivery_reply(term(), Endpoint.t(), Outbound.t()) ::
+          {:ok, Receipt.t()} | {:error, term()}
+  defp normalize_delivery_reply({:ok, %Receipt{} = receipt}, endpoint, outbound),
+    do: {:ok, normalize_receipt(receipt, endpoint, outbound)}
+
+  defp normalize_delivery_reply({:ok, receipt}, endpoint, outbound) when is_map(receipt) do
+    {:ok, receipt |> Receipt.new() |> normalize_receipt(endpoint, outbound)}
+  rescue
+    exception -> {:error, {:invalid_beam_receipt, endpoint.id, Exception.message(exception)}}
+  end
+
+  defp normalize_delivery_reply({:error, _reason} = error, _endpoint, _outbound), do: error
+
+  defp normalize_delivery_reply(other, endpoint, _outbound),
+    do: {:error, {:invalid_beam_delivery_reply, endpoint.id, other}}
 
   @spec call_lifecycle(Endpoint.t(), :subscribe | :unsubscribe, keyword()) ::
           :ok | {:error, term()}
@@ -405,11 +501,9 @@ defmodule Spectre.Beam.Runtime do
         {:error, {:beam_adapter_lifecycle_not_supported, endpoint.id, callback}}
 
       true ->
-        case apply(endpoint.adapter, callback, [Endpoint.adapter_opts(endpoint, opts)]) do
-          :ok -> :ok
-          {:error, _reason} = error -> error
-          other -> {:error, {:invalid_beam_adapter_lifecycle_reply, endpoint.id, callback, other}}
-        end
+        endpoint.adapter
+        |> apply(callback, [Endpoint.adapter_opts(endpoint, opts)])
+        |> normalize_lifecycle_reply(endpoint, callback)
     end
   rescue
     exception ->
@@ -418,6 +512,13 @@ defmodule Spectre.Beam.Runtime do
     kind, reason ->
       {:error, {:beam_adapter_lifecycle_failure, endpoint.id, callback, kind, reason}}
   end
+
+  @spec normalize_lifecycle_reply(term(), Endpoint.t(), atom()) :: :ok | {:error, term()}
+  defp normalize_lifecycle_reply(:ok, _endpoint, _callback), do: :ok
+  defp normalize_lifecycle_reply({:error, _reason} = error, _endpoint, _callback), do: error
+
+  defp normalize_lifecycle_reply(other, endpoint, callback),
+    do: {:error, {:invalid_beam_adapter_lifecycle_reply, endpoint.id, callback, other}}
 
   @spec normalize_inbound(Inbound.t() | map(), Endpoint.t()) ::
           {:ok, Inbound.t()} | {:error, term()}
@@ -432,6 +533,31 @@ defmodule Spectre.Beam.Runtime do
   rescue
     exception -> {:error, {:invalid_beam_inbound, endpoint.id, Exception.message(exception)}}
   end
+
+  @spec normalize_outbound(Outbound.t() | map() | keyword(), Endpoint.t()) ::
+          {:ok, Outbound.t()} | {:error, term()}
+  defp normalize_outbound(%Outbound{endpoint: endpoint_id} = outbound, %Endpoint{id: endpoint_id}),
+       do: {:ok, outbound}
+
+  defp normalize_outbound(%Outbound{} = outbound, endpoint),
+    do: {:error, {:beam_outbound_endpoint_mismatch, endpoint.id, outbound.endpoint}}
+
+  defp normalize_outbound(attrs, endpoint) when is_list(attrs) do
+    if Keyword.keyword?(attrs) do
+      attrs |> Map.new() |> normalize_outbound(endpoint)
+    else
+      {:error, {:invalid_beam_outbound, endpoint.id, attrs}}
+    end
+  end
+
+  defp normalize_outbound(attrs, endpoint) when is_map(attrs) do
+    {:ok, attrs |> Map.put(:endpoint, endpoint.id) |> Outbound.new()}
+  rescue
+    exception -> {:error, {:invalid_beam_outbound, endpoint.id, Exception.message(exception)}}
+  end
+
+  defp normalize_outbound(attrs, endpoint),
+    do: {:error, {:invalid_beam_outbound, endpoint.id, attrs}}
 
   @spec normalize_receipt(Receipt.t(), Endpoint.t(), Outbound.t()) :: Receipt.t()
   defp normalize_receipt(receipt, endpoint, outbound) do
@@ -466,25 +592,36 @@ defmodule Spectre.Beam.Runtime do
 
   @spec session_agent(GenServer.server()) :: {:ok, module()} | {:error, term()}
   defp session_agent(session) do
-    {:ok, Spectre.Session.agent(session)}
+    if Code.ensure_loaded?(@session) and function_exported?(@session, :agent, 1) do
+      {:ok, apply(@session, :agent, [session])}
+    else
+      {:error, {:invalid_spectre_session, session}}
+    end
   rescue
     _exception -> {:error, {:invalid_spectre_session, session}}
   catch
     _kind, _reason -> {:error, {:invalid_spectre_session, session}}
   end
 
-  @spec agent_definition(module() | AgentRef.t()) :: {:ok, module()} | {:error, term()}
-  defp agent_definition(%AgentRef{} = ref) do
-    case AgentRef.validate(ref) do
-      :ok -> {:ok, ref.definition}
+  @spec agent_definition(module() | map()) :: {:ok, module()} | {:error, term()}
+  defp agent_definition(%{__struct__: @agent_ref} = ref) do
+    case core_call(@agent_ref, :validate, [ref]) do
+      :ok -> {:ok, Map.fetch!(ref, :definition)}
       {:error, reason} -> {:error, reason}
     end
   end
 
-  defp agent_definition(agent) when is_atom(agent) and not is_nil(agent),
-    do: {:ok, agent}
-
+  defp agent_definition(agent) when is_atom(agent) and not is_nil(agent), do: {:ok, agent}
   defp agent_definition(agent), do: {:error, {:invalid_beam_agent_ref, agent}}
+
+  @spec instance_key(pid()) :: {:ok, term()} | {:error, term()}
+  defp instance_key(instance) do
+    case core_call(@instance, :ref, [instance]) do
+      ref when is_map(ref) -> {:ok, Map.fetch!(ref, :key)}
+      {:error, _reason} = error -> error
+      other -> {:error, {:invalid_spectre_instance_ref, other}}
+    end
+  end
 
   @spec validate_outbound_capability(Endpoint.t(), Outbound.t()) :: :ok | {:error, term()}
   defp validate_outbound_capability(endpoint, outbound) do
@@ -581,12 +718,12 @@ defmodule Spectre.Beam.Runtime do
     end
   end
 
-  @spec reply_key(Ref.t()) :: String.t()
-  defp reply_key(%Ref{} = ref), do: "beam-reply:" <> Ref.token(ref)
+  @spec reply_key(map()) :: String.t()
+  defp reply_key(ref), do: "beam-reply:" <> apply(@run_ref, :token, [ref])
 
-  @spec legacy_reply_key(Result.t(), Inbound.t()) :: String.t()
+  @spec legacy_reply_key(map(), Inbound.t()) :: String.t()
   defp legacy_reply_key(result, inbound) do
-    turn_id = get_in(result.metadata, [:runtime_identity, :turn_id]) || Spectre.Identity.uuid7()
+    turn_id = get_in(result, [Access.key(:metadata, %{}), :runtime_identity, :turn_id]) || uuid7()
 
     digest =
       :crypto.hash(
@@ -596,6 +733,19 @@ defmodule Spectre.Beam.Runtime do
       |> Base.url_encode64(padding: false)
 
     "beam-legacy-reply:" <> digest
+  end
+
+  @spec visible_reply?(map()) :: boolean()
+  defp visible_reply?(result) do
+    Code.ensure_loaded?(@result) and function_exported?(@result, :visible_reply?, 1) and
+      apply(@result, :visible_reply?, [result])
+  end
+
+  @spec uuid7() :: String.t()
+  defp uuid7 do
+    if Code.ensure_loaded?(@identity) and function_exported?(@identity, :uuid7, 0),
+      do: apply(@identity, :uuid7, []),
+      else: Base.url_encode64(:crypto.strong_rand_bytes(16), padding: false)
   end
 
   @spec store(Endpoint.t(), :inbound | :outbound, keyword()) :: {module(), keyword()}
@@ -613,14 +763,14 @@ defmodule Spectre.Beam.Runtime do
     do: Keyword.get(opts, :idempotency_store) || endpoint.metadata.idempotency_store
 
   @spec normalize_store(term()) :: {module(), keyword()}
-  defp normalize_store(configured) do
-    case configured do
-      nil -> {Store, []}
-      module when is_atom(module) -> {module, []}
-      {module, store_opts} when is_atom(module) and is_list(store_opts) -> {module, store_opts}
-      invalid -> {__MODULE__.InvalidStore, [configured: invalid]}
-    end
-  end
+  defp normalize_store(nil), do: {Store, []}
+  defp normalize_store(module) when is_atom(module), do: {module, []}
+
+  defp normalize_store({module, store_opts}) when is_atom(module) and is_list(store_opts),
+    do: {module, store_opts}
+
+  defp normalize_store(invalid),
+    do: {__MODULE__.InvalidStore, [configured: invalid]}
 
   @spec store_call({module(), keyword()}, atom(), list()) :: term()
   defp store_call({module, opts}, callback, args) do
@@ -636,17 +786,25 @@ defmodule Spectre.Beam.Runtime do
     kind, reason -> {:error, {:beam_idempotency_store_failure, module, callback, kind, reason}}
   end
 
+  @spec release_with_error({module(), keyword()}, term(), term()) :: {:error, term()}
+  defp release_with_error(store, key, reason) do
+    _released = store_call(store, :release, [key])
+    {:error, reason}
+  end
+
   @spec record_delivery(Endpoint.t(), Receipt.t(), keyword()) :: :ok
   defp record_delivery(endpoint, receipt, opts) do
     case Keyword.get(opts, :agent) do
       agent when is_atom(agent) and not is_nil(agent) ->
-        _result =
-          Spectre.Journal.record(
-            agent,
-            :beam_delivery,
-            %{endpoint: endpoint.id, status: receipt.status},
-            opts
-          )
+        if Code.ensure_loaded?(@journal) and function_exported?(@journal, :record, 4) do
+          _result =
+            apply(@journal, :record, [
+              agent,
+              :beam_delivery,
+              %{endpoint: endpoint.id, status: receipt.status},
+              opts
+            ])
+        end
 
         :ok
 
@@ -654,4 +812,17 @@ defmodule Spectre.Beam.Runtime do
         :ok
     end
   end
+
+  @spec core_call(module(), atom(), list()) :: term()
+  defp core_call(module, function, args) do
+    if Code.ensure_loaded?(module) and function_exported?(module, function, length(args)) do
+      apply(module, function, args)
+    else
+      {:error, :spectre_not_available}
+    end
+  end
+
+  @spec core_struct?(term(), module()) :: boolean()
+  defp core_struct?(%{__struct__: module}, module), do: true
+  defp core_struct?(_value, _module), do: false
 end
