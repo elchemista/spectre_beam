@@ -1,7 +1,7 @@
 defmodule SpectreBeam.MixProject do
   use Mix.Project
 
-  @version "0.2.0"
+  @version "0.1.6"
   @source_url "https://github.com/elchemista/spectre_beam"
 
   def project do
@@ -30,7 +30,7 @@ defmodule SpectreBeam.MixProject do
 
   defp deps do
     [
-      {:spectre, github: "elchemista/spectre", branch: "main", override: true},
+      {:spectre, github: "elchemista/spectre", branch: "main", only: :test},
       {:ex_doc, "~> 0.40", only: :dev, runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false}
@@ -49,7 +49,7 @@ defmodule SpectreBeam.MixProject do
   defp docs do
     [
       main: "readme",
-      source_ref: "v#{@version}",
+      source_ref: "main",
       extras: ["README.md", "docs/PUBLIC_API.md", "CHANGELOG.md", "LICENSE"]
     ]
   end

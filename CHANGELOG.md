@@ -4,17 +4,18 @@ All notable changes to Spectre Beam are documented in this file.
 
 ## [Unreleased]
 
-## [0.2.0] - 2026-08-01
-
 ### Changed
 
-- Raised the package and Stack compatibility contracts to Spectre 0.2.0.
-- Verified the complete channel, identity, Instance, Effect, and delivery
-  suites against the Spectre 0.2.0 operational runtime.
-
-### Compatibility
-
-- Kept the 0.1.6 Beam exchange fixture as a permanent recovery contract.
+- Removed Spectre from Beam's runtime dependency graph. The repository now
+  consumes `elchemista/spectre` from GitHub `main` only in `MIX_ENV=test`.
+- Kept the Beam package at `0.1.6`; the Stack manifest declares compatibility
+  with Spectre `~> 0.2.0` without pretending Beam itself has a `0.2.0` release.
+- Late-bound the Stack, Agent, action-provider, identity, Instance, Turn, and
+  Journal integration through Spectre's public contracts.
+- Added direct configuration and delivery entry points for using the Beam
+  channel boundary independently of an Agent.
+- Retained the full Spectre integration, ExGram, ExWapp, pipeline,
+  idempotency, and recovery test suites against Spectre GitHub `main`.
 
 ## [0.1.6] - 2026-07-31
 
@@ -24,6 +25,5 @@ All notable changes to Spectre Beam are documented in this file.
   public API manifest and complete release documentation.
 - Added no runtime functionality and made no intentional breaking API change.
 
-[Unreleased]: https://github.com/elchemista/spectre_beam/compare/v0.2.0...HEAD
-[0.2.0]: https://github.com/elchemista/spectre_beam/compare/v0.1.6...v0.2.0
+[Unreleased]: https://github.com/elchemista/spectre_beam/compare/v0.1.6...HEAD
 [0.1.6]: https://github.com/elchemista/spectre_beam/compare/v0.1.5...v0.1.6

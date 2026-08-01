@@ -1,11 +1,17 @@
 defmodule Spectre.Beam.Extension do
-  @moduledoc false
+  @moduledoc """
+  Late-bound Spectre Agent extension used by `Spectre.Beam`.
 
-  alias Spectre.Action.Provider.Mount, as: ProviderMount
+  The callbacks return ordinary maps, tuples, and Beam structs, allowing this
+  module to compile without Spectre while remaining compatible with Spectre's
+  public extension contract when both libraries are installed.
+  """
+
   alias Spectre.Beam.ActionProvider
   alias Spectre.Beam.Config
   alias Spectre.Beam.Endpoint
-  alias Spectre.Flow.Constraint
+
+  @provider_mount :"Elixir.Spectre.Action.Provider.Mount"
 
   @endpoint_default_keys [
     :pipelines,
@@ -18,21 +24,14 @@ defmodule Spectre.Beam.Extension do
     :max_payload_bytes
   ]
 
-  @behaviour Spectre.Extension
-
-  @impl true
   def id, do: :beam
-
-  @impl true
   def api_version, do: 1
 
-  @impl true
   def setup(owner, _opts) do
     Module.register_attribute(owner, :spectre_beam_channels, accumulate: true, persist: false)
     :ok
   end
 
-  @impl true
   def compile(owner, opts) do
     {declarations, options} =
       case Keyword.fetch(opts, :stack_config) do
@@ -54,10 +53,8 @@ defmodule Spectre.Beam.Extension do
     end
   end
 
-  @impl true
   def agent_config(%Config{} = config), do: [beam: config]
 
-  @impl true
   def expand_handler({:beam, _meta, [target, opts]}, caller, _mount_opts) do
     target = expand_value(target, caller)
     opts = expand_value(opts, caller)
@@ -91,7 +88,6 @@ defmodule Spectre.Beam.Extension do
 
   def expand_handler(_handler, _caller, _mount_opts), do: :ignore
 
-  @impl true
   def flow_constraints(opts, %Config{} = config) do
     case Keyword.pop(opts, :beam) do
       {nil, remaining} ->
@@ -108,26 +104,22 @@ defmodule Spectre.Beam.Extension do
             {:error, {:unknown_beam_endpoint, unknown}}
 
           true ->
-            {[
-               Constraint.new(
-                 namespace: :beam,
-                 kind: :source,
-                 values: mounts,
-                 mode: :any
-               )
-             ], remaining}
+            {[%{namespace: :beam, kind: :source, values: mounts, mode: :any}], remaining}
         end
     end
   end
 
-  @impl true
   def action_providers(%Config{} = config) do
     Enum.map(config.endpoints, fn endpoint ->
-      ProviderMount.new(
-        {:beam, endpoint.id},
-        ActionProvider,
-        endpoint: endpoint
-      )
+      if Code.ensure_loaded?(@provider_mount) and function_exported?(@provider_mount, :new, 3) do
+        apply(@provider_mount, :new, [
+          {:beam, endpoint.id},
+          ActionProvider,
+          [endpoint: endpoint]
+        ])
+      else
+        {{:beam, endpoint.id}, ActionProvider, endpoint: endpoint}
+      end
     end)
   end
 

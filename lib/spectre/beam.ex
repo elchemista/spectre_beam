@@ -1,52 +1,61 @@
 defmodule Spectre.Beam do
   @moduledoc """
-  Multichannel input and output boundary for Spectre Agents.
+  External-channel boundary for Spectre applications.
 
-  Beam decodes provider-specific events into `Spectre.Input`, delegates the
-  turn to the canonical `Spectre.turn/3` boundary, and delivers an ordinary
-  reactive reply through the same endpoint. Proactive messages remain normal
-  Spectre actions subject to policy and lifecycle.
+  Beam owns provider normalization, channel delivery, pipelines, and delivery
+  idempotency. Spectre remains the owner of Agents, Turns, policy, identity,
+  and persistence. The integration is implemented through public contracts so
+  Beam does not require `:spectre` in its runtime dependency graph.
   """
 
-  alias Spectre.Stack.DSL
+  alias Spectre.Beam.Config
+  alias Spectre.Beam.Endpoint
+  alias Spectre.Beam.Inbound
+  alias Spectre.Beam.Outbound
+  alias Spectre.Beam.Receipt
+  alias Spectre.Beam.Runtime
 
-  @version "0.2.0"
+  @version "0.1.6"
+  @spectre_extension :"Elixir.Spectre.Extension"
 
-  use Spectre.Stack.Installable,
-    id: :beam,
-    version: @version,
-    contract: 1,
-    spectre: "~> 0.2.0",
-    provides: [{:service, :beam}],
-    agent_extensions: [Spectre.Beam.Extension],
-    dsl: __MODULE__
-
-  @doc """
-  Returns the Beam package version.
-  """
+  @doc "Returns the Beam package version."
   @spec version() :: String.t()
   def version, do: @version
+
+  @doc """
+  Publishes the Spectre Stack installable contract without taking a runtime
+  dependency on Spectre.
+  """
+  @spec manifest() :: keyword()
+  def manifest do
+    [
+      id: :beam,
+      module: __MODULE__,
+      version: @version,
+      contract: 1,
+      spectre: "~> 0.2.0",
+      provides: [{:service, :beam}],
+      agent_extensions: [Spectre.Beam.Extension],
+      dsl: __MODULE__
+    ]
+  end
 
   defmacro __using__(opts) do
     quote do
       import Spectre.Beam, only: [beaming: 1, channel: 2, beam: 2]
 
-      Spectre.Extension.register!(
-        __MODULE__,
-        Spectre.Beam.Extension,
-        unquote(opts)
+      apply(
+        :"Elixir.Spectre.Extension",
+        :register!,
+        [__MODULE__, Spectre.Beam.Extension, unquote(opts)]
       )
     end
   end
 
-  @doc """
-  Groups endpoint declarations on an Agent.
-  """
+  @doc "Groups endpoint declarations on an Agent."
   defmacro beaming(do: block), do: block
 
-  @doc """
-  Declares one mounted external endpoint.
-  """
+  @doc "Declares one mounted external endpoint."
   defmacro channel(id, opts) do
     id = expand_value(id, __CALLER__)
     opts = expand_value(opts, __CALLER__)
@@ -57,12 +66,7 @@ defmodule Spectre.Beam do
     end
   end
 
-  @doc """
-  Stages a proactive Beam action.
-
-  `via:` selects the mounted endpoint. The operation defaults to `:send_text`
-  and can be overridden explicitly with `operation:`.
-  """
+  @doc "Stages a proactive Beam action on a Spectre Agent."
   defmacro beam(target, opts) do
     target = expand_value(target, __CALLER__)
     opts = expand_value(opts, __CALLER__)
@@ -76,10 +80,7 @@ defmodule Spectre.Beam do
       |> Map.put(:to, target)
 
     action_opts =
-      [
-        args: args,
-        mode: :write
-      ]
+      [args: args, mode: :write]
       |> maybe_put(:policy, Keyword.get(opts, :policy))
       |> maybe_put(:reply, Keyword.get(opts, :reply))
 
@@ -91,13 +92,26 @@ defmodule Spectre.Beam do
     end
   end
 
-  @doc """
-  Returns an Agent's compiled Beam configuration.
-  """
-  @spec config(module()) :: {:ok, Spectre.Beam.Config.t()} | {:error, term()}
+  @doc "Builds a Beam configuration directly, without an Agent or Stack."
+  @spec new([Endpoint.t() | {term(), module() | keyword()}], keyword()) :: Config.t()
+  def new(channels, opts \\ []) when is_list(channels) and is_list(opts) do
+    endpoints =
+      Enum.map(channels, fn
+        %Endpoint{} = endpoint -> endpoint
+        {id, adapter} when is_atom(adapter) -> Endpoint.new(id, adapter)
+        {id, endpoint_opts} when is_list(endpoint_opts) -> Endpoint.new(id, endpoint_opts)
+        invalid -> raise ArgumentError, "invalid Beam endpoint declaration: #{inspect(invalid)}"
+      end)
+
+    Config.new(endpoints, opts)
+  end
+
+  @doc "Returns an Agent's compiled Beam configuration."
+  @spec config(module()) :: {:ok, Config.t()} | {:error, term()}
   def config(agent) when is_atom(agent) do
-    with {:ok, mount} <- Spectre.Extension.fetch(agent, :beam),
-         %Spectre.Beam.Config{} = config <- mount.compiled do
+    with :ok <- ensure_core(@spectre_extension),
+         {:ok, mount} <- apply(@spectre_extension, :fetch, [agent, :beam]),
+         %Config{} = config <- Map.get(mount, :compiled) do
       {:ok, config}
     else
       {:error, _reason} = error -> error
@@ -105,79 +119,78 @@ defmodule Spectre.Beam do
     end
   end
 
-  @doc """
-  Decodes one provider event through a mounted endpoint.
-  """
-  defdelegate decode(agent, endpoint, event, opts \\ []), to: Spectre.Beam.Runtime
+  @doc "Normalizes one provider event through a direct config or mounted Agent."
+  @spec decode(Config.t() | module(), term(), term(), keyword()) ::
+          {:ok, Inbound.t()} | :ignore | {:error, term()}
+  defdelegate decode(config_or_agent, endpoint, event, opts \\ []), to: Runtime
 
-  @doc """
-  Converts a normalized Beam inbound into a Spectre input.
-  """
-  defdelegate to_input(inbound), to: Spectre.Beam.Runtime
+  @doc "Converts a normalized inbound into a Spectre input at runtime."
+  defdelegate to_input(inbound), to: Runtime
 
-  @doc """
-  Converts an authenticated Beam inbound into an opaque core identity.
-
-  The sender is never treated as a Subject. It is reduced to a
-  `Spectre.ExternalIdentity` that must already have an explicit link in the
-  core Subject Registry before it can reach an Agent Instance.
-  """
+  @doc "Builds a Spectre external identity from an authenticated inbound."
   defdelegate external_identity(inbound, opts \\ []), to: Spectre.Beam.Identity
 
-  @doc """
-  Resolves an authenticated inbound through the core Subject Registry and
-  starts or returns the unique Instance for the linked Subject.
-  """
+  @doc "Resolves an authenticated inbound to its linked Spectre Instance."
   defdelegate resolve_instance(supervisor, agent, inbound, opts \\ []),
     to: Spectre.Beam.Identity
 
-  @doc """
-  Delivers the observable reply boundary from a turn through the inbound
-  endpoint.
-  """
-  defdelegate reply(agent, inbound, result, opts \\ []), to: Spectre.Beam.Runtime
+  @doc "Delivers an observable Spectre Turn reply through its inbound endpoint."
+  defdelegate reply(agent, inbound, turn, opts \\ []), to: Runtime
 
-  @doc """
-  Runs decode, deduplication, `Spectre.turn/3`, and reactive delivery.
-  """
-  defdelegate handle(agent_or_session, endpoint, event, opts \\ []),
-    to: Spectre.Beam.Runtime
+  @doc "Runs decode, Spectre turn handling, inbound deduplication, and reply delivery."
+  defdelegate handle(agent_or_session, endpoint, event, opts \\ []), to: Runtime
 
-  @doc """
-  Runs the identity-safe multichannel path.
+  @doc "Runs the identity-safe Spectre Instance path."
+  defdelegate handle_instance(supervisor, agent, endpoint, event, opts \\ []), to: Runtime
 
-  It decodes and authenticates the inbound, resolves its exact
-  `Spectre.ExternalIdentity` through `Spectre.Subject.Registry`, routes to the
-  corresponding `Spectre.Instance`, and returns at the ordinary public Turn
-  boundary. An unlinked identity fails closed.
-  """
-  defdelegate handle_instance(supervisor, agent, endpoint, event, opts \\ []),
-    to: Spectre.Beam.Runtime
+  @doc "Delivers a provider-neutral outbound value through a direct Beam config."
+  @spec deliver(Config.t(), term(), Outbound.t() | map() | keyword(), keyword()) ::
+          {:ok, Receipt.t()} | {:error, term()}
+  defdelegate deliver(config, endpoint, outbound, opts \\ []), to: Runtime
 
-  @doc """
-  Subscribes the calling process through a configured endpoint adapter.
-  """
-  defdelegate subscribe(agent, endpoint, opts \\ []), to: Spectre.Beam.Runtime
+  @doc "Subscribes through a direct config or mounted Agent endpoint."
+  defdelegate subscribe(config_or_agent, endpoint, opts \\ []), to: Runtime
 
-  @doc """
-  Unsubscribes the calling process through a configured endpoint adapter.
-  """
-  defdelegate unsubscribe(agent, endpoint, opts \\ []), to: Spectre.Beam.Runtime
+  @doc "Unsubscribes through a direct config or mounted Agent endpoint."
+  defdelegate unsubscribe(config_or_agent, endpoint, opts \\ []), to: Runtime
 
-  @impl Spectre.Stack.Installable
-  def compile(opts, block, caller) do
+  @doc false
+  @spec compile(keyword(), Macro.t() | nil, Macro.Env.t()) ::
+          {:ok, map()} | {:error, term()}
+  def compile(opts, block, %Macro.Env{} = caller) do
     channels =
       block
-      |> DSL.compile!(caller, channel: 2)
-      |> Enum.map(fn {:channel, [id, adapter]} -> {id, adapter} end)
+      |> dsl_calls()
+      |> Enum.map(&compile_channel!(&1, caller))
 
     case duplicate_id(channels) do
-      :none -> {:ok, %{options: opts, channels: channels}}
-      {:duplicate, id} -> {:error, {:duplicate_beam_channel, id}}
+      nil -> {:ok, %{options: opts, channels: channels}}
+      id -> {:error, {:duplicate_beam_channel, id}}
     end
   end
 
-  @spec duplicate_id([{term(), term()}]) :: :none | {:duplicate, term()}
+  @spec compile_channel!(Macro.t(), Macro.Env.t()) :: {term(), term()}
+  defp compile_channel!({:channel, _meta, [id, options]}, caller) do
+    {evaluate!(id, caller), evaluate!(options, caller)}
+  end
+
+  defp compile_channel!(call, _caller) do
+    raise ArgumentError, "unknown Beam Stack declaration: #{Macro.to_string(call)}"
+  end
+
+  @spec dsl_calls(Macro.t() | nil) :: [Macro.t()]
+  defp dsl_calls(nil), do: []
+  defp dsl_calls({:__block__, _meta, calls}), do: calls
+  defp dsl_calls(one), do: [one]
+
+  @spec evaluate!(Macro.t(), Macro.Env.t()) :: term()
+  defp evaluate!(ast, caller) do
+    expanded = Macro.prewalk(ast, &Macro.expand(&1, caller))
+    {value, _binding} = Code.eval_quoted(expanded, [], caller)
+    value
+  end
+
+  @spec duplicate_id([{term(), term()}]) :: term() | nil
   defp duplicate_id(entries) do
     entries
     |> Enum.reduce_while(MapSet.new(), fn {id, _adapter}, seen ->
@@ -186,9 +199,14 @@ defmodule Spectre.Beam do
         else: {:cont, MapSet.put(seen, id)}
     end)
     |> case do
-      %MapSet{} -> :none
-      id -> {:duplicate, id}
+      %MapSet{} -> nil
+      id -> id
     end
+  end
+
+  @spec ensure_core(module()) :: :ok | {:error, :spectre_not_available}
+  defp ensure_core(module) do
+    if Code.ensure_loaded?(module), do: :ok, else: {:error, :spectre_not_available}
   end
 
   @spec infer_operation(keyword()) :: atom()

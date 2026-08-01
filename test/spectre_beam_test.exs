@@ -50,7 +50,7 @@ defmodule Spectre.Beam.StackContractTest do
     assert {:ok, package} = V1.verify_installable(Spectre.Beam)
 
     assert package.id == :beam
-    assert package.version == "0.2.0"
+    assert package.version == "0.1.6"
     assert package.contract == 1
     assert package.spectre == "~> 0.2.0"
     assert package.dsl == Spectre.Beam
@@ -59,6 +59,18 @@ defmodule Spectre.Beam.StackContractTest do
     assert package.actions == []
     assert package.resources == []
     assert package.agent_extensions == [Spectre.Beam.Extension]
+  end
+
+  test "keeps Spectre on GitHub main and outside the runtime dependency graph" do
+    assert {:spectre, opts} =
+             Mix.Project.config()
+             |> Keyword.fetch!(:deps)
+             |> Enum.find(&(elem(&1, 0) == :spectre))
+
+    assert opts[:github] == "elchemista/spectre"
+    assert opts[:branch] == "main"
+    assert opts[:only] == :test
+    refute Keyword.has_key?(opts, :runtime)
   end
 
   test "selecting the Stack activates Beam without use Spectre.Beam" do
