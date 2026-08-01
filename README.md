@@ -60,6 +60,46 @@ defmodule MyApp.AI do
 end
 ```
 
+## Delivery logistics
+
+Conversational channel plumbing — pacing, typing, a human reply delay, and
+bounded retries — is configured per channel (Stack-level `install` options set
+defaults; every option also accepts a per-call override) and runs while the
+outbound idempotency claim is held:
+
+```elixir
+channel :whatsapp,
+  type: :whatsapp,
+  adapter: Spectre.Beam.Adapters.ExWapp,
+  typing: true,
+  reply_delay_ms: {1_500, 3_000},
+  throttle: [
+    messages_per_second: 2.0,
+    burst: 4,
+    min_delay_ms: 400,
+    per_conversation: [messages_per_minute: 12],
+    jitter_ms: 250
+  ],
+  retry: [max_attempts: 3, base_delay_ms: 250, max_delay_ms: 5_000]
+```
+
+- `typing:` calls the adapter's optional `typing/3` callback right before the
+  delay and send, so the pause reads as composing. Best effort: provider
+  failures never fail the delivery. The bundled adapters dispatch to the
+  provider's `send_typing(client, to, composing?)`.
+- `reply_delay_ms:` pauses between the typing signal and the provider call;
+  `{min, max}` randomizes the pause.
+- `throttle:` reserves a send slot through `Spectre.Beam.Throttle` before the
+  adapter is invoked. The bundled `Spectre.Beam.Throttle.Local` paces per
+  endpoint (token bucket and `min_delay_ms` spacing) and per conversation;
+  `{MyApp.ClusterPacer, config}` swaps the strategy. A rejected reservation
+  returns `{:error, {:beam_throttled, endpoint, reason}}` and releases the
+  idempotency claim, so the send stays retryable.
+- `retry:` re-invokes the adapter with exponential backoff for plain
+  `{:error, reason}` replies. `{:error, {:ambiguous, _}}` outcomes are never
+  retried — the provider may already have accepted the message — and
+  `retry_on: (reason -> boolean)` narrows what is retryable.
+
 Selecting that Stack activates the Beam extension, source constraints,
 reactive delivery, and proactive action providers:
 

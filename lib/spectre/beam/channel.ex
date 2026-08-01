@@ -21,10 +21,12 @@ defmodule Spectre.Beam.Channel do
               {:ok, Spectre.Beam.Receipt.t() | map()} | :ignore | {:error, term()}
   @callback subscribe(keyword()) :: :ok | {:error, term()}
   @callback unsubscribe(keyword()) :: :ok | {:error, term()}
+  @callback typing(to :: term(), composing? :: boolean(), keyword()) :: :ok | {:error, term()}
 
   @optional_callbacks capabilities: 1,
                       acknowledge: 2,
                       normalize_receipt: 2,
                       subscribe: 1,
-                      unsubscribe: 1
+                      unsubscribe: 1,
+                      typing: 3
 end

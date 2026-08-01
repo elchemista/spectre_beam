@@ -19,7 +19,7 @@ is an implementation detail even when exported.
 - `Spectre.Beam.Adapters.ExGram`
 - `Spectre.Beam.Adapters.ExWapp`
 - `Spectre.Beam.Channel`
-  - callbacks: `acknowledge/2`, `capabilities/1`, `decode/2`, `deliver/2`, `normalize_receipt/2`, `subscribe/1`, `unsubscribe/1`
+  - callbacks: `acknowledge/2`, `capabilities/1`, `decode/2`, `deliver/2`, `normalize_receipt/2`, `subscribe/1`, `typing/3`, `unsubscribe/1`
 - `Spectre.Beam.Config`
   - functions: `fetch/2`, `new/1`, `new/2`
 - `Spectre.Beam.Content`
@@ -49,6 +49,16 @@ is an implementation detail even when exported.
   - functions: `child_spec/1`
 - `Spectre.Beam.TargetResolver`
   - callbacks: `resolve/3`
+- `Spectre.Beam.Throttle`
+  - callbacks: `reserve/3`
+- `Spectre.Beam.Throttle.Local`
+  - functions: `child_spec/1`, `reset/0`, `reset/1`
+
+## Delivery logistics options
+
+`channel/2` (and `install Spectre.Beam` defaults, and per-call runtime opts)
+accept `typing:`, `reply_delay_ms:`, `retry:`, and `throttle:`. Their semantics
+are documented on `Spectre.Beam.Logistics` and `Spectre.Beam.Throttle`.
 
 ## Compatibility boundary
 

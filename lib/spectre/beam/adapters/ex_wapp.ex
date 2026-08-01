@@ -62,6 +62,9 @@ defmodule Spectre.Beam.Adapters.ExWapp do
   end
 
   @impl true
+  def typing(to, composing?, opts), do: Common.typing(@provider, opts, to, composing?)
+
+  @impl true
   def subscribe(opts) do
     with {:ok, module} <- Common.provider_module(opts, @provider),
          {:ok, client} <- Common.client(opts) do
@@ -141,15 +144,15 @@ defmodule Spectre.Beam.Adapters.ExWapp do
 
     case {content.type, await_ack? and is_pid(client)} do
       {:text, true} ->
-        Common.call(module, :send_message_await, [
-          client,
-          outbound.to,
-          content.text,
-          Keyword.get(opts, :timeout, 15_000)
-        ])
+        Common.call_send(
+          module,
+          :send_message_await,
+          [client, outbound.to, content.text, Keyword.get(opts, :timeout, 15_000)],
+          send_opts
+        )
 
       {:text, false} ->
-        Common.call(module, :send_message, [client, outbound.to, content.text])
+        Common.call_send(module, :send_message, [client, outbound.to, content.text], send_opts)
 
       {:document, _await_ack?} ->
         Common.call(module, :send_document, [

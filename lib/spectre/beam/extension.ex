@@ -21,7 +21,11 @@ defmodule Spectre.Beam.Extension do
     :receipt_pipeline,
     :deduplicator,
     :idempotency_store,
-    :max_payload_bytes
+    :max_payload_bytes,
+    :typing,
+    :reply_delay_ms,
+    :retry,
+    :throttle
   ]
 
   def id, do: :beam

@@ -18,7 +18,11 @@ defmodule Spectre.Beam.Endpoint do
     :before_decode,
     :inbound_pipeline,
     :outbound_pipeline,
-    :receipt_pipeline
+    :receipt_pipeline,
+    :typing,
+    :reply_delay_ms,
+    :retry,
+    :throttle
   ]
 
   @pipeline_stages [:before_decode, :after_decode, :before_deliver, :after_deliver]
@@ -66,7 +70,11 @@ defmodule Spectre.Beam.Endpoint do
       metadata: %{
         deduplicator: Keyword.get(opts, :deduplicator),
         idempotency_store: Keyword.get(opts, :idempotency_store),
-        max_payload_bytes: Keyword.get(opts, :max_payload_bytes)
+        max_payload_bytes: Keyword.get(opts, :max_payload_bytes),
+        typing: Keyword.get(opts, :typing),
+        reply_delay_ms: Keyword.get(opts, :reply_delay_ms),
+        retry: Keyword.get(opts, :retry),
+        throttle: Keyword.get(opts, :throttle)
       }
     }
 

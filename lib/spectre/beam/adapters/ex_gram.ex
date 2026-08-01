@@ -63,6 +63,9 @@ defmodule Spectre.Beam.Adapters.ExGram do
   end
 
   @impl true
+  def typing(to, composing?, opts), do: Common.typing(@provider, opts, to, composing?)
+
+  @impl true
   def subscribe(opts) do
     with {:ok, module} <- Common.provider_module(opts, @provider),
          {:ok, client} <- Common.client(opts) do
@@ -191,7 +194,7 @@ defmodule Spectre.Beam.Adapters.ExGram do
 
     case content.type do
       :text ->
-        Common.call(module, :send_message, [client, outbound.to, content.text])
+        Common.call_send(module, :send_message, [client, outbound.to, content.text], send_opts)
 
       :document ->
         Common.call(module, :send_document, [
