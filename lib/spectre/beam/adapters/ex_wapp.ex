@@ -5,6 +5,13 @@ defmodule Spectre.Beam.Adapters.ExWapp do
   Set `await_ack: true` for synchronous text sends when the configured client
   is a session pid. An acknowledgement timeout is reported as an ambiguous
   Beam outcome so the idempotency claim is intentionally retained.
+
+  An awaited send that carries send options (e.g. a stable
+  `retry_message_id:`) needs a provider function able to accept them. When the
+  provider module has no such arity, pass `send_await:` in the adapter
+  options — a `(client, to, text, timeout, send_opts)` function the host
+  builds on its provider's own API — and the adapter dispatches to it instead
+  of guessing.
   """
 
   @behaviour Spectre.Beam.Channel
@@ -144,15 +151,18 @@ defmodule Spectre.Beam.Adapters.ExWapp do
 
     case {content.type, await_ack? and is_pid(client)} do
       {:text, true} ->
-        Common.call_send(
+        awaited_text(
           module,
-          :send_message_await,
-          [client, outbound.to, content.text, Keyword.get(opts, :timeout, 15_000)],
-          send_opts
+          client,
+          outbound.to,
+          content.text,
+          Keyword.get(opts, :timeout, 15_000),
+          send_opts,
+          opts
         )
 
       {:text, false} ->
-        Common.call_send(module, :send_message, [client, outbound.to, content.text], send_opts)
+        plain_text(module, client, outbound.to, content.text, send_opts)
 
       {:document, _await_ack?} ->
         Common.call(module, :send_document, [
@@ -191,6 +201,30 @@ defmodule Spectre.Beam.Adapters.ExWapp do
 
       {unsupported, _await_ack?} ->
         {:error, {:unsupported_ex_wapp_content, unsupported}}
+    end
+  end
+
+  @spec plain_text(module(), term(), term(), String.t(), keyword()) :: term()
+  defp plain_text(module, client, to, text, send_opts),
+    do: Common.call_send(module, :send_message, [client, to, text], send_opts)
+
+  # The awaited send must never drop send options silently: a retried delivery
+  # that loses `retry_message_id:` turns one message into two for the
+  # recipient. A host whose provider version has no wide awaited arity passes
+  # `send_await:` — a 5-arity function built on the provider's own API — in
+  # the adapter options.
+  @spec awaited_text(module(), term(), term(), String.t(), timeout(), keyword(), keyword()) ::
+          term()
+  defp awaited_text(module, client, to, text, timeout, send_opts, opts) do
+    case Keyword.get(opts, :send_await) do
+      fun when is_function(fun, 5) ->
+        fun.(client, to, text, timeout, send_opts)
+
+      _no_fun when send_opts == [] ->
+        Common.call(module, :send_message_await, [client, to, text, timeout])
+
+      _no_fun ->
+        Common.call(module, :send_message_await, [client, to, text, timeout, send_opts])
     end
   end
 

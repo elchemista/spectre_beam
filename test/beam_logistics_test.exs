@@ -268,6 +268,47 @@ defmodule Spectre.Beam.LogisticsTest do
     assert_receive {:provider_typing, 42, false}
   end
 
+  test "awaited sends with options use send_await: or fail loudly, never dropping them" do
+    outbound =
+      Spectre.Beam.Outbound.new(%{
+        endpoint: :main,
+        conversation_id: "conv-1",
+        to: "user-1",
+        content: Content.text("ciao"),
+        idempotency_key: "await-1"
+      })
+
+    test_pid = self()
+
+    await = fn client, to, text, timeout, send_opts ->
+      send(test_pid, {:custom_await, client, to, text, timeout, send_opts})
+      {:ok, "custom-acked"}
+    end
+
+    assert {:ok, %Receipt{provider_message_id: "custom-acked"}} =
+             ExWapp.deliver(outbound,
+               client: self(),
+               module: Provider,
+               await_ack: true,
+               timeout: 99,
+               send_await: await,
+               send_opts: [retry_message_id: "await-1"]
+             )
+
+    assert_receive {:custom_await, _client, "user-1", "ciao", 99, send_opts}
+    assert send_opts[:retry_message_id] == "await-1"
+
+    # Provider (send_message_await/4 only) cannot carry the options and no
+    # send_await: was given: loud error instead of a silent drop.
+    assert {:error, {:beam_provider_callback_missing, Provider, :send_message_await, 5}} =
+             ExWapp.deliver(outbound,
+               client: self(),
+               module: Provider,
+               await_ack: true,
+               send_opts: [retry_message_id: "await-1"]
+             )
+  end
+
   test "text sends pass send_opts when the provider supports them" do
     outbound =
       Spectre.Beam.Outbound.new(%{

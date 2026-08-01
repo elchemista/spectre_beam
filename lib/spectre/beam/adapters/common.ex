@@ -11,6 +11,7 @@ defmodule Spectre.Beam.Adapters.Common do
     :client,
     :module,
     :recipient,
+    :send_await,
     :send_opts,
     :session,
     :timeout
