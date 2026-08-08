@@ -4,6 +4,23 @@ All notable changes to Spectre Beam are documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- Corrected the local token-bucket reservation algorithm so callers arriving
+  between already-booked slots no longer accumulate phantom rate-limit debt.
+- Kept outbound idempotency claims fenced after provider success when receipt
+  pipelines or store persistence fail, preventing bookkeeping failures from
+  causing duplicate external messages.
+- Revalidated pipeline-transformed inbound, outbound, content, and receipt
+  values instead of allowing malformed structs to bypass boundary invariants.
+- Made retry-filter failures provider-neutral and retryable later, accepted
+  valid zero-wait throttle reservations, and fixed inclusive reply-delay
+  ranges.
+- Reported ExWapp delivery as acknowledged only when an acknowledgement was
+  actually awaited, and preserved media payloads for normalized typed events.
+- Normalized invalid action-provider resolver replies, idempotency keys, and
+  identity/Instance options into stable errors instead of runtime exceptions.
+
 ## [0.2.0] - 2026-08-08
 
 ### Added

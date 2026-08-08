@@ -191,6 +191,8 @@ defmodule Spectre.Beam.BoundaryContractTest.TargetResolver3 do
       :raise -> raise "target failed"
       :throw -> throw(:target_failed)
       :reject -> {:error, :target_rejected}
+      :missing -> {:ok, nil}
+      :invalid_reply -> :invalid
       _other -> {:ok, {endpoint.id, target, ctx.agent}}
     end
   end
@@ -288,6 +290,19 @@ defmodule Spectre.Beam.BoundaryContractTest.ReceiptIdentityPlug do
   end
 end
 
+defmodule Spectre.Beam.BoundaryContractTest.CorruptValuePlug do
+  @moduledoc false
+
+  alias Spectre.Beam.Pipeline
+
+  def call(%Pipeline{value: value} = pipeline, opts) do
+    Pipeline.put_value(
+      pipeline,
+      Map.put(value, Keyword.fetch!(opts, :field), Keyword.fetch!(opts, :value))
+    )
+  end
+end
+
 defmodule Spectre.Beam.BoundaryContractTest.Agent do
   @moduledoc false
 
@@ -322,6 +337,15 @@ defmodule Spectre.Beam.BoundaryContractTest.Agent do
         {Spectre.Beam.BoundaryContractTest.InboundIdentityPlug, field: :channel_type}
       ]
     )
+
+    channel(:invalid_content,
+      adapter: Spectre.Beam.BoundaryContractTest.RuntimeAdapter,
+      capabilities: [:text],
+      inbound_pipeline: [
+        {Spectre.Beam.BoundaryContractTest.CorruptValuePlug,
+         field: :content, value: %Spectre.Beam.Content{type: nil}}
+      ]
+    )
   end
 end
 
@@ -337,6 +361,7 @@ defmodule Spectre.Beam.BoundaryContractTest do
   alias Spectre.Beam.BoundaryContractTest.AgentValues
   alias Spectre.Beam.BoundaryContractTest.CapabilityAdapter
   alias Spectre.Beam.BoundaryContractTest.ControlledStore
+  alias Spectre.Beam.BoundaryContractTest.CorruptValuePlug
   alias Spectre.Beam.BoundaryContractTest.DecodeOnlyAdapter
   alias Spectre.Beam.BoundaryContractTest.HaltPlug
   alias Spectre.Beam.BoundaryContractTest.InvalidPlug
@@ -387,6 +412,8 @@ defmodule Spectre.Beam.BoundaryContractTest do
         ] do
       assert_raise ArgumentError, fn -> Content.new(attrs) end
     end
+
+    assert_raise ArgumentError, fn -> apply(Content, :new, [%Content{type: nil}]) end
 
     inbound =
       Inbound.new(
@@ -452,9 +479,13 @@ defmodule Spectre.Beam.BoundaryContractTest do
 
     assert %Receipt{status: :accepted} = Receipt.accepted(outbound)
     assert %Receipt{status: :sent} = Receipt.new(status: :sent)
-    assert %Receipt{status: :read} = Receipt.new(%Receipt{status: :read})
+
+    assert %Receipt{status: :read, occurred_at: %DateTime{}} =
+             Receipt.new(%Receipt{status: :read})
+
     assert_raise ArgumentError, fn -> Receipt.new(status: :unknown) end
     assert_raise ArgumentError, fn -> Receipt.new(status: :sent, metadata: []) end
+    assert_raise ArgumentError, fn -> Receipt.new(status: :sent, occurred_at: :invalid) end
   end
 
   test "endpoint configuration validates capabilities, pipelines, and planner exposure" do
@@ -520,6 +551,50 @@ defmodule Spectre.Beam.BoundaryContractTest do
     ]
 
     Enum.each(invalid_endpoint_options, &assert_raise(ArgumentError, &1))
+  end
+
+  test "standalone configs expose the complete provider boundary without an Agent" do
+    endpoint = Endpoint.new(:edge, adapter: RuntimeAdapter, capabilities: [:text])
+    config = Config.new([endpoint])
+
+    assert Config.fetch(config, :edge) == {:ok, endpoint}
+    assert Config.fetch(config, :missing) == {:error, {:unknown_beam_endpoint, :missing}}
+
+    assert_raise ArgumentError, fn -> Config.new([endpoint], [:not_a_keyword]) end
+    assert_raise ArgumentError, fn -> Config.new([endpoint, endpoint]) end
+
+    assert {:ok, %Inbound{endpoint: :edge}} = Runtime.decode(config, :edge, %{id: "direct"})
+    assert Runtime.decode(config, :missing, %{}) == {:error, {:unknown_beam_endpoint, :missing}}
+
+    outbound =
+      Outbound.new(
+        endpoint: :edge,
+        to: "recipient",
+        content: Content.text("direct"),
+        idempotency_key: "standalone-delivery"
+      )
+
+    assert {:ok, %Receipt{}} = Runtime.deliver(config, :edge, outbound)
+    assert :ok = Runtime.subscribe(config, :edge)
+    assert :ok = Runtime.unsubscribe(config, :edge)
+
+    assert Runtime.deliver(config, :edge, %{outbound | endpoint: :other}) ==
+             {:error, {:beam_outbound_endpoint_mismatch, :edge, :other}}
+
+    assert Runtime.deliver(config, :edge, [:not_a_keyword]) ==
+             {:error, {:invalid_beam_outbound, :edge, [:not_a_keyword]}}
+
+    assert Runtime.deliver(config, :edge, :invalid) ==
+             {:error, {:invalid_beam_outbound, :edge, :invalid}}
+
+    missing_adapter = Endpoint.new(:missing, adapter: Spectre.Beam.MissingAdapter)
+    missing_config = Config.new([missing_adapter])
+
+    assert Runtime.decode(missing_config, :missing, %{}) ==
+             {:error, {:beam_adapter_not_loaded, :missing, Spectre.Beam.MissingAdapter}}
+
+    assert Runtime.subscribe(missing_config, :missing) ==
+             {:error, {:beam_adapter_not_loaded, :missing, Spectre.Beam.MissingAdapter}}
   end
 
   test "pipelines transform, halt, and fail closed without changing boundary identity" do
@@ -824,6 +899,7 @@ defmodule Spectre.Beam.BoundaryContractTest do
     cases = [
       {%{text: "hello"}, :text},
       {%{media: %{type: :photo, id: "photo"}}, :image},
+      {%{content: %{kind: :document, media: %{id: "document"}}}, :document},
       {%{location: %{latitude: 1}}, :location},
       {%{contact: %{name: "A"}}, :contact},
       {%{event: %{name: "Event"}}, :event},
@@ -835,6 +911,14 @@ defmodule Spectre.Beam.BoundaryContractTest do
       assert inbound.content.type == type
       assert inbound.conversation_id == "chat"
     end)
+
+    assert {:ok, document_inbound} =
+             ExWapp.decode(
+               Map.merge(base, %{content: %{kind: :document, media: %{id: "document"}}}),
+               []
+             )
+
+    assert document_inbound.content.data == %{id: "document"}
 
     assert {:ok, with_session} =
              ExWapp.decode(
@@ -906,6 +990,17 @@ defmodule Spectre.Beam.BoundaryContractTest do
 
     assert_receive {:provider_call, :await_text, :to, "hello", 7}
 
+    non_pid_client = {self(), {:ok, "plain-id"}}
+
+    assert {:ok, %Receipt{provider_message_id: "plain-id", metadata: %{dispatch: :synchronous}}} =
+             ExWapp.deliver(text,
+               module: Provider,
+               client: non_pid_client,
+               await_ack: true
+             )
+
+    assert_receive {:provider_call, :text, :to, "hello"}
+
     timeout = %{text | content: Content.text("timeout")}
 
     assert {:error, {:ambiguous, :ack_timeout}} =
@@ -968,6 +1063,23 @@ defmodule Spectre.Beam.BoundaryContractTest do
 
     assert {:error, :missing_beam_idempotency_key} =
              ActionProvider.execute(text_action, %{context | opts: []}, endpoint: endpoint)
+
+    assert {:error, :missing_beam_idempotency_key} =
+             ActionProvider.execute(
+               text_action,
+               %{context | opts: [idempotency_key: " "]},
+               endpoint: endpoint
+             )
+
+    assert {:error, {:invalid_beam_idempotency_key, 42}} =
+             ActionProvider.execute(
+               text_action,
+               %{context | opts: [idempotency_key: 42]},
+               endpoint: endpoint
+             )
+
+    assert {:error, {:invalid_beam_action_context_options, %{}}} =
+             ActionProvider.execute(text_action, %{context | opts: %{}}, endpoint: endpoint)
 
     assert {:error, {:beam_action_provider_mismatch, {:beam, :other}, :edge}} =
              ActionProvider.execute(
@@ -1073,6 +1185,20 @@ defmodule Spectre.Beam.BoundaryContractTest do
                context,
                endpoint: endpoint
              )
+
+    assert {:error, {:missing_beam_target, :edge}} =
+             ActionProvider.execute(
+               %{text_action | args: %{to: :missing, text: "hello"}},
+               context,
+               endpoint: endpoint
+             )
+
+    assert {:error, {:invalid_beam_target_resolver_reply, :edge, :invalid}} =
+             ActionProvider.execute(
+               %{text_action | args: %{to: :invalid_reply, text: "hello"}},
+               context,
+               endpoint: endpoint
+             )
   end
 
   test "runtime decode and lifecycle failures remain provider-neutral" do
@@ -1161,12 +1287,23 @@ defmodule Spectre.Beam.BoundaryContractTest do
            ) == {:ok, duplicate}
 
     assert Runtime.deliver(endpoint, outbound,
+             idempotency_store: {ControlledStore, [claim: {:duplicate, :invalid}]}
+           ) ==
+             {:error,
+              {:invalid_beam_idempotency_value, {:outbound, :edge, "runtime-delivery"}, :invalid}}
+
+    assert Runtime.deliver(endpoint, outbound,
              idempotency_store: {ControlledStore, [claim: :in_progress]}
            ) == {:error, {:beam_delivery_in_progress, "runtime-delivery"}}
 
     assert Runtime.deliver(endpoint, outbound,
              idempotency_store: {ControlledStore, [claim: {:error, :store_down}]}
            ) == {:error, :store_down}
+
+    assert Runtime.deliver(endpoint, outbound,
+             idempotency_store: {ControlledStore, [claim: :invalid]}
+           ) ==
+             {:error, {:invalid_beam_idempotency_store_reply, ControlledStore, :claim, :invalid}}
 
     assert {:ok, %Receipt{status: :sent, endpoint: :edge, outbound_id: "runtime-delivery"}} =
              Runtime.deliver(endpoint, outbound,
@@ -1219,8 +1356,45 @@ defmodule Spectre.Beam.BoundaryContractTest do
         receipt_pipeline: [ReceiptIdentityPlug]
       )
 
-    assert {:error, {:invalid_beam_receipt_pipeline_value, :edge, %Receipt{}}} =
-             Runtime.deliver(receipt_identity, outbound, idempotency_store: {ControlledStore, []})
+    assert {:error, {:ambiguous, {:invalid_beam_receipt_pipeline_value, :edge, %Receipt{}}}} =
+             Runtime.deliver(receipt_identity, outbound,
+               idempotency_store: {ControlledStore, [test_pid: self()]}
+             )
+
+    refute_receive {:store_release, {:outbound, :edge, "runtime-delivery"}}
+
+    invalid_outbound =
+      Endpoint.new(:edge,
+        adapter: RuntimeAdapter,
+        capabilities: [:text],
+        outbound_pipeline: [{CorruptValuePlug, field: :metadata, value: []}]
+      )
+
+    assert {:error, {:invalid_beam_outbound_pipeline_value, :edge, %Outbound{}}} =
+             Runtime.deliver(invalid_outbound, outbound, idempotency_store: {ControlledStore, []})
+
+    invalid_receipt =
+      Endpoint.new(:edge,
+        adapter: RuntimeAdapter,
+        capabilities: [:text],
+        receipt_pipeline: [{CorruptValuePlug, field: :status, value: :invalid}]
+      )
+
+    assert {:error, {:ambiguous, {:invalid_beam_receipt_pipeline_value, :edge, %Receipt{}}}} =
+             Runtime.deliver(invalid_receipt, outbound,
+               idempotency_store: {ControlledStore, [test_pid: self()]}
+             )
+
+    refute_receive {:store_release, {:outbound, :edge, "runtime-delivery"}}
+
+    assert {:error, {:ambiguous, :store_down}} =
+             Runtime.deliver(endpoint, outbound,
+               idempotency_store:
+                 {ControlledStore, [test_pid: self(), complete: {:error, :store_down}]}
+             )
+
+    assert_receive {:store_complete, {:outbound, :edge, "runtime-delivery"}, %Receipt{}}
+    refute_receive {:store_release, {:outbound, :edge, "runtime-delivery"}}
 
     ignored =
       Endpoint.new(:edge,
@@ -1263,6 +1437,9 @@ defmodule Spectre.Beam.BoundaryContractTest do
 
     assert {:error, {:invalid_beam_inbound_pipeline_value, :wrong_type, %Inbound{}}} =
              Spectre.Beam.decode(Agent, :wrong_type, %{id: "message"})
+
+    assert {:error, {:invalid_beam_inbound_pipeline_value, :invalid_content, %Inbound{}}} =
+             Spectre.Beam.decode(Agent, :invalid_content, %{id: "message"})
   end
 
   test "Stack extension compilation rejects ambiguous boundary declarations" do

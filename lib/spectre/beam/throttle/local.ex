@@ -98,9 +98,11 @@ defmodule Spectre.Beam.Throttle.Local do
     end
   end
 
-  # Token bucket: `burst` sends may go back to back, then the rate applies.
-  # When the bucket is empty the missing token is borrowed and the refill
-  # timestamp moves into the future, which is what spaces later callers.
+  # Token bucket expressed as a GCRA theoretical-arrival-time reservation.
+  # Keeping one future timestamp avoids carrying a negative token balance:
+  # with the old representation, a caller arriving while another reservation
+  # was still in the future accrued an extra full-token delay on every call.
+  # `burst - 1` intervals form the bucket's immediate-send window.
   @spec bucket_reservation(map(), term(), keyword(), integer()) ::
           {non_neg_integer(), (map(), integer() -> map())}
   defp bucket_reservation(state, endpoint_id, config, now) do
@@ -111,14 +113,15 @@ defmodule Spectre.Beam.Throttle.Local do
       rate ->
         capacity = config |> Keyword.get(:burst) |> positive_integer(1) |> max(1)
 
-        {tokens, updated_at} =
-          Map.get(state.buckets, endpoint_id, {capacity * 1.0, now})
-
-        tokens = min(capacity * 1.0, tokens + max(now - updated_at, 0) * rate / 1_000)
-        wait = if tokens >= 1.0, do: 0, else: ceil((1.0 - tokens) * 1_000 / rate)
+        interval_ms = 1_000 / rate
+        theoretical_arrival = Map.get(state.buckets, endpoint_id, now * 1.0)
+        burst_window = (capacity - 1) * interval_ms
+        eligible_at = theoretical_arrival - burst_window
+        wait = max(ceil(eligible_at - now), 0)
 
         commit = fn state, slot_at ->
-          %{state | buckets: Map.put(state.buckets, endpoint_id, {tokens - 1.0, slot_at})}
+          next_arrival = max(theoretical_arrival, slot_at * 1.0) + interval_ms
+          %{state | buckets: Map.put(state.buckets, endpoint_id, next_arrival)}
         end
 
         {wait, commit}
@@ -169,7 +172,7 @@ defmodule Spectre.Beam.Throttle.Local do
   defp add_jitter(wait, config) do
     case positive_integer(Keyword.get(config, :jitter_ms), 0) do
       0 -> wait
-      jitter -> wait + :rand.uniform(jitter)
+      jitter -> wait + :rand.uniform(jitter + 1) - 1
     end
   end
 

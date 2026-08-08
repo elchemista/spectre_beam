@@ -71,6 +71,8 @@ defmodule Spectre.Beam.Inbound do
     unless match?(%Content{}, inbound.content),
       do: raise(ArgumentError, "Beam inbound content is required")
 
+    _validated_content = Content.new(inbound.content)
+
     unless is_boolean(inbound.authenticated?),
       do: raise(ArgumentError, "Beam authenticated? must be boolean")
 

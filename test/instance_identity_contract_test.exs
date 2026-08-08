@@ -212,6 +212,7 @@ defmodule Spectre.Beam.InstanceIdentityContractTest do
   test "external identity principals must be portable logical values" do
     inbound = inbound(:telegram, self(), "chat")
     blank = inbound(:telegram, "   ", "chat")
+    missing = %{inbound | sender: nil}
 
     assert {:error,
             {:invalid_beam_external_identity_sender, {:nonportable_run_value, _path, :pid}}} =
@@ -219,6 +220,36 @@ defmodule Spectre.Beam.InstanceIdentityContractTest do
 
     assert {:error, :beam_external_identity_sender_required} =
              Spectre.Beam.external_identity(blank)
+
+    assert {:error, :beam_external_identity_sender_required} =
+             Spectre.Beam.external_identity(missing)
+  end
+
+  test "identity options fail closed before touching Spectre registries" do
+    inbound = inbound(:telegram, "user", "chat")
+
+    assert {:error, {:invalid_beam_identity_options, %{}}} =
+             Spectre.Beam.external_identity(inbound, %{})
+
+    assert {:error, {:invalid_beam_identity_options, [:not_a_keyword]}} =
+             Spectre.Beam.external_identity(inbound, [:not_a_keyword])
+
+    assert {:error, {:invalid_beam_authentication_time, :invalid}} =
+             Spectre.Beam.external_identity(inbound, authenticated_at: :invalid)
+
+    assert {:error, {:invalid_beam_identity_metadata, []}} =
+             Spectre.Beam.external_identity(inbound, identity_metadata: [])
+
+    assert {:error, {:invalid_beam_instance_options, %{}}} =
+             Spectre.Beam.resolve_instance(
+               @instance_supervisor,
+               Agent,
+               inbound,
+               Keyword.put(identity_opts(), :instance_opts, %{})
+             )
+
+    assert {:error, {:invalid_beam_identity_options, %{}}} =
+             Spectre.Beam.resolve_instance(@instance_supervisor, Agent, inbound, %{})
   end
 
   test "an unverified event cannot impersonate an explicitly linked sender" do

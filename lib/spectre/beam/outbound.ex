@@ -53,6 +53,7 @@ defmodule Spectre.Beam.Outbound do
 
     if is_nil(outbound.to), do: raise(ArgumentError, "outbound target is required")
     unless match?(%Content{}, outbound.content), do: raise(ArgumentError, "content is required")
+    _validated_content = Content.new(outbound.content)
 
     unless is_binary(outbound.idempotency_key) and outbound.idempotency_key != "",
       do: raise(ArgumentError, "outbound idempotency key is required")

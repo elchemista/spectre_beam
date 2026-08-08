@@ -18,7 +18,8 @@ defmodule Spectre.Beam.Identity do
   def external_identity(inbound, opts \\ [])
 
   def external_identity(%Inbound{} = inbound, opts) when is_list(opts) do
-    with :ok <- authenticated(inbound),
+    with :ok <- keyword_options(opts),
+         :ok <- authenticated(inbound),
          :ok <- sender_present(inbound),
          {:ok, authenticated_at} <- authenticated_at(opts),
          {:ok, metadata} <- identity_metadata(opts),
@@ -43,6 +44,9 @@ defmodule Spectre.Beam.Identity do
       {:error, {:invalid_beam_external_identity, Exception.message(exception)}}
   end
 
+  def external_identity(%Inbound{}, opts),
+    do: {:error, {:invalid_beam_identity_options, opts}}
+
   def external_identity(inbound, _opts),
     do: {:error, {:invalid_beam_identity_inbound, inbound}}
 
@@ -51,10 +55,11 @@ defmodule Spectre.Beam.Identity do
   def resolve_instance(supervisor, agent, inbound, opts \\ [])
 
   def resolve_instance(supervisor, agent, %Inbound{} = inbound, opts) when is_list(opts) do
-    subject_registry_server = Keyword.get(opts, :subject_registry, @subject_registry)
-    instance_registry_name = Keyword.get(opts, :instance_registry, @instance_registry)
-
-    with {:ok, agent_ref} <- normalize_agent_ref(agent),
+    with :ok <- keyword_options(opts),
+         subject_registry_server = Keyword.get(opts, :subject_registry, @subject_registry),
+         instance_registry_name = Keyword.get(opts, :instance_registry, @instance_registry),
+         {:ok, instance_opts} <- instance_opts(opts, instance_registry_name),
+         {:ok, agent_ref} <- normalize_agent_ref(agent),
          {:ok, identity} <- external_identity(inbound, opts),
          :ok <- ensure_core(@subject_registry),
          {:ok, subject, _link} <-
@@ -65,11 +70,14 @@ defmodule Spectre.Beam.Identity do
         supervisor,
         agent_ref,
         subject,
-        instance_opts(opts, instance_registry_name)
+        instance_opts
       ])
       |> normalize_instance_start()
     end
   end
+
+  def resolve_instance(_supervisor, _agent, %Inbound{}, opts),
+    do: {:error, {:invalid_beam_identity_options, opts}}
 
   def resolve_instance(_supervisor, _agent, inbound, _opts),
     do: {:error, {:invalid_beam_identity_inbound, inbound}}
@@ -138,11 +146,24 @@ defmodule Spectre.Beam.Identity do
     end
   end
 
-  @spec instance_opts(keyword(), atom()) :: keyword()
+  @spec instance_opts(keyword(), term()) :: {:ok, keyword()} | {:error, term()}
   defp instance_opts(opts, instance_registry) do
-    opts
-    |> Keyword.get(:instance_opts, [])
-    |> Keyword.put(:registry, instance_registry)
+    case Keyword.get(opts, :instance_opts, []) do
+      instance_opts when is_list(instance_opts) ->
+        if Keyword.keyword?(instance_opts),
+          do: {:ok, Keyword.put(instance_opts, :registry, instance_registry)},
+          else: {:error, {:invalid_beam_instance_options, instance_opts}}
+
+      instance_opts ->
+        {:error, {:invalid_beam_instance_options, instance_opts}}
+    end
+  end
+
+  @spec keyword_options(term()) :: :ok | {:error, term()}
+  defp keyword_options(opts) do
+    if Keyword.keyword?(opts),
+      do: :ok,
+      else: {:error, {:invalid_beam_identity_options, opts}}
   end
 
   @spec normalize_instance_start(term()) :: {:ok, pid()} | {:error, term()}

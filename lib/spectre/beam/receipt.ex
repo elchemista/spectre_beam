@@ -36,12 +36,12 @@ defmodule Spectre.Beam.Receipt do
   end
 
   @spec new(t() | map() | keyword()) :: t()
-  def new(%__MODULE__{} = receipt), do: validate!(receipt)
+  def new(%__MODULE__{} = receipt), do: receipt |> put_occurred_at() |> validate!()
   def new(attrs) when is_list(attrs), do: attrs |> Map.new() |> new()
 
   def new(attrs) when is_map(attrs) do
     attrs
-    |> Map.put_new(:occurred_at, DateTime.utc_now())
+    |> put_occurred_at()
     |> then(&struct(__MODULE__, Map.take(&1, fields())))
     |> validate!()
   end
@@ -54,7 +54,25 @@ defmodule Spectre.Beam.Receipt do
     unless is_map(receipt.metadata),
       do: raise(ArgumentError, "Beam receipt metadata must be a map")
 
+    unless match?(%DateTime{}, receipt.occurred_at),
+      do: raise(ArgumentError, "Beam receipt occurred_at must be a DateTime")
+
     receipt
+  end
+
+  @spec put_occurred_at(t() | map()) :: t() | map()
+  defp put_occurred_at(%__MODULE__{occurred_at: nil} = receipt),
+    do: %{receipt | occurred_at: DateTime.utc_now()}
+
+  defp put_occurred_at(%__MODULE__{} = receipt), do: receipt
+
+  defp put_occurred_at(attrs) do
+    occurred_at = DateTime.utc_now()
+
+    Map.update(attrs, :occurred_at, occurred_at, fn
+      nil -> occurred_at
+      occurred_at -> occurred_at
+    end)
   end
 
   @spec fields() :: [atom()]

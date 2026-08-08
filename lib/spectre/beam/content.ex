@@ -18,12 +18,17 @@ defmodule Spectre.Beam.Content do
   end
 
   @spec new(t() | map() | keyword()) :: t()
-  def new(%__MODULE__{} = content), do: content
+  def new(%__MODULE__{} = content), do: validate!(content)
   def new(attrs) when is_list(attrs), do: attrs |> Map.new() |> new()
 
   def new(attrs) when is_map(attrs) do
-    content = struct(__MODULE__, Map.take(attrs, fields()))
+    attrs
+    |> then(&struct(__MODULE__, Map.take(&1, fields())))
+    |> validate!()
+  end
 
+  @spec validate!(t()) :: t()
+  defp validate!(%__MODULE__{} = content) do
     unless is_atom(content.type) and not is_nil(content.type),
       do: raise(ArgumentError, "Beam content type is required")
 

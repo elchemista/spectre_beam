@@ -78,11 +78,16 @@ defmodule Spectre.Beam.Logistics do
   defp attempt_deliver(deliver_fun, policy, attempt, max_attempts) do
     case deliver_fun.(attempt) do
       {:error, reason} = error when attempt < max_attempts ->
-        if retryable?(reason, policy) do
-          Process.sleep(backoff(policy, attempt))
-          attempt_deliver(deliver_fun, policy, attempt + 1, max_attempts)
-        else
-          error
+        case retryable?(reason, policy) do
+          {:ok, true} ->
+            Process.sleep(backoff(policy, attempt))
+            attempt_deliver(deliver_fun, policy, attempt + 1, max_attempts)
+
+          {:ok, false} ->
+            error
+
+          {:error, filter_reason} ->
+            {:error, filter_reason}
         end
 
       result ->
@@ -90,14 +95,18 @@ defmodule Spectre.Beam.Logistics do
     end
   end
 
-  @spec retryable?(term(), keyword()) :: boolean()
-  defp retryable?({:ambiguous, _reason}, _policy), do: false
+  @spec retryable?(term(), keyword()) :: {:ok, boolean()} | {:error, term()}
+  defp retryable?({:ambiguous, _reason}, _policy), do: {:ok, false}
 
   defp retryable?(reason, policy) do
     case Keyword.get(policy, :retry_on) do
-      filter when is_function(filter, 1) -> filter.(reason) == true
-      _no_filter -> true
+      filter when is_function(filter, 1) -> {:ok, filter.(reason) == true}
+      _no_filter -> {:ok, true}
     end
+  rescue
+    exception -> {:error, {:beam_retry_filter_exception, exception.__struct__}}
+  catch
+    kind, caught -> {:error, {:beam_retry_filter_failure, kind, caught}}
   end
 
   @spec backoff(keyword(), pos_integer()) :: non_neg_integer()
@@ -125,6 +134,9 @@ defmodule Spectre.Beam.Logistics do
 
         case reserve(module, key, config, opts) do
           :ok ->
+            :ok
+
+          {:wait, 0} ->
             :ok
 
           {:wait, wait_ms} when is_integer(wait_ms) and wait_ms > 0 ->
@@ -186,8 +198,9 @@ defmodule Spectre.Beam.Logistics do
         Process.sleep(delay_ms)
 
       {min_ms, max_ms}
-      when is_integer(min_ms) and is_integer(max_ms) and min_ms >= 0 and max_ms > min_ms ->
-        Process.sleep(min_ms + :rand.uniform(max_ms - min_ms))
+      when is_integer(min_ms) and is_integer(max_ms) and min_ms >= 0 and max_ms >= min_ms ->
+        wait_ms = min_ms + :rand.uniform(max_ms - min_ms + 1) - 1
+        if wait_ms > 0, do: Process.sleep(wait_ms)
 
       _disabled ->
         :ok
