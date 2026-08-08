@@ -1,9 +1,9 @@
-# Spectre Beam public API — GitHub `main`
+# Spectre Beam public API — 0.2.0
 
-This manifest describes the supported `spectre_beam` `0.1.6` surface on
-GitHub `main`. Beam has no runtime Mix dependency on Spectre. Its Spectre-facing
-callbacks are nevertheless public and are tested against
-`elchemista/spectre` GitHub `main` through a test-only dependency.
+This manifest describes the supported `spectre_beam` `0.2.0` surface. Beam has
+no runtime Mix dependency on Spectre. Its Spectre-facing callbacks are
+nevertheless public and are tested against the `elchemista/spectre` GitHub
+`0.2.0` tag through a test-only dependency.
 
 Default arguments expand into every callable arity. Documented types and
 documented struct fields on the listed modules are public. Anything not listed

@@ -8,25 +8,26 @@ idempotency.
 Beam is made for Spectre, but it deliberately has **no runtime Mix dependency
 on `:spectre`**. Its Stack manifest, Agent extension, action provider, identity
 bridge, and Turn handler use Spectre's public contracts only when both
-libraries are present. The Beam repository includes Spectre from GitHub
-`main` only in `MIX_ENV=test`, so the complete integration remains covered.
+libraries are present. The Beam repository includes the Spectre `0.2.0` tag
+from GitHub only in `MIX_ENV=test`, so the complete integration remains
+covered.
 
-Beam's package version remains `0.1.6`. The Stack manifest's
-`spectre: "~> 0.2.0"` field describes compatibility with the core API; it is
-not a Beam release number and it is not a Hex dependency.
+Beam `0.2.0` and the Stack manifest's `spectre: "~> 0.2.0"` field are aligned
+with the Spectre `0.2.0` public API. Spectre projects are distributed from
+GitHub tags and are not published to Hex.
 
 The supported surface is listed in the
 [public API manifest](docs/PUBLIC_API.md).
 
 ## Installation
 
-Both projects are consumed directly from GitHub `main`:
+Both projects are consumed directly from their GitHub `0.2.0` tags:
 
 ```elixir
 def deps do
   [
-    {:spectre, github: "elchemista/spectre", branch: "main"},
-    {:spectre_beam, github: "elchemista/spectre_beam", branch: "main"}
+    {:spectre, github: "elchemista/spectre", tag: "0.2.0"},
+    {:spectre_beam, github: "elchemista/spectre_beam", tag: "v0.2.0"}
   ]
 end
 ```
@@ -34,7 +35,7 @@ end
 Beam itself declares Spectre only for its integration suite:
 
 ```elixir
-{:spectre, github: "elchemista/spectre", branch: "main", only: :test}
+{:spectre, github: "elchemista/spectre", tag: "0.2.0", only: :test}
 ```
 
 ## Spectre Stack integration

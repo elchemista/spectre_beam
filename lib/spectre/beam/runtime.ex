@@ -204,6 +204,9 @@ defmodule Spectre.Beam.Runtime do
       {:duplicate, %Receipt{} = receipt} ->
         {:ok, receipt}
 
+      {:duplicate, value} ->
+        {:error, {:invalid_beam_idempotency_value, key, value}}
+
       :in_progress ->
         {:error, {:beam_delivery_in_progress, outbound.idempotency_key}}
 
@@ -272,6 +275,9 @@ defmodule Spectre.Beam.Runtime do
 
         {:duplicate, %Exchange{} = exchange} ->
           resume_exchange(agent, endpoint, %{exchange | duplicate?: true}, opts, store, key)
+
+        {:duplicate, value} ->
+          {:error, {:invalid_beam_idempotency_value, key, value}}
 
         :in_progress ->
           {:error, {:duplicate_beam_inbound_in_progress, Inbound.key(inbound)}}
@@ -410,30 +416,79 @@ defmodule Spectre.Beam.Runtime do
   @spec deliver_claimed(Endpoint.t(), Outbound.t(), keyword(), {module(), keyword()}, term()) ::
           {:ok, Receipt.t()} | {:error, term()}
   defp deliver_claimed(endpoint, outbound, opts, store, key) do
-    with {:ok, prepared} <- run_pipeline(endpoint, :before_deliver, outbound, opts),
-         :ok <- validate_pipeline_outbound(prepared, outbound, endpoint),
-         :ok <- validate_outbound_capability(endpoint, prepared),
-         :ok <- Logistics.before_deliver(endpoint, prepared, opts),
-         {:ok, receipt} <-
-           Logistics.deliver_with_retry(endpoint, opts, fn _attempt ->
-             call_deliver(endpoint, prepared, opts)
-           end),
-         {:ok, receipt} <- run_pipeline(endpoint, :after_deliver, receipt, opts),
-         :ok <- validate_pipeline_receipt(receipt, prepared, endpoint),
-         :ok <- store_call(store, :complete, [key, receipt]) do
-      record_delivery(endpoint, receipt, opts)
-      {:ok, receipt}
-    else
-      {:error, {:ambiguous, _reason}} = error ->
-        error
+    case prepare_delivery(endpoint, outbound, opts) do
+      {:ok, prepared} ->
+        dispatch_claimed(endpoint, prepared, opts, store, key)
 
       :ignore ->
         _released = store_call(store, :release, [key])
         {:error, {:beam_pipeline_ignored_delivery, endpoint.id}}
 
       {:error, reason} ->
-        _released = store_call(store, :release, [key])
-        {:error, reason}
+        release_with_error(store, key, reason)
+    end
+  end
+
+  @spec prepare_delivery(Endpoint.t(), Outbound.t(), keyword()) ::
+          {:ok, Outbound.t()} | :ignore | {:error, term()}
+  defp prepare_delivery(endpoint, outbound, opts) do
+    with {:ok, prepared} <- run_pipeline(endpoint, :before_deliver, outbound, opts),
+         :ok <- validate_pipeline_outbound(prepared, outbound, endpoint),
+         :ok <- validate_outbound_capability(endpoint, prepared),
+         :ok <- Logistics.before_deliver(endpoint, prepared, opts) do
+      {:ok, prepared}
+    end
+  end
+
+  @spec dispatch_claimed(
+          Endpoint.t(),
+          Outbound.t(),
+          keyword(),
+          {module(), keyword()},
+          term()
+        ) :: {:ok, Receipt.t()} | {:error, term()}
+  defp dispatch_claimed(endpoint, outbound, opts, store, key) do
+    case Logistics.deliver_with_retry(endpoint, opts, fn _attempt ->
+           call_deliver(endpoint, outbound, opts)
+         end) do
+      {:ok, receipt} ->
+        finalize_dispatched(endpoint, outbound, receipt, opts, store, key)
+
+      {:error, {:ambiguous, _reason}} = error ->
+        error
+
+      {:error, reason} ->
+        release_with_error(store, key, reason)
+    end
+  end
+
+  # Once the adapter reports success, any receipt-pipeline or persistence
+  # failure is ambiguous: the provider may already have delivered the message.
+  # Keeping the claim fenced is safer than turning a bookkeeping failure into
+  # a duplicate external side effect on retry.
+  @spec finalize_dispatched(
+          Endpoint.t(),
+          Outbound.t(),
+          Receipt.t(),
+          keyword(),
+          {module(), keyword()},
+          term()
+        ) :: {:ok, Receipt.t()} | {:error, term()}
+  defp finalize_dispatched(endpoint, outbound, receipt, opts, store, key) do
+    with {:ok, receipt} <- run_pipeline(endpoint, :after_deliver, receipt, opts),
+         :ok <- validate_pipeline_receipt(receipt, outbound, endpoint),
+         :ok <- store_call(store, :complete, [key, receipt]) do
+      record_delivery(endpoint, receipt, opts)
+      {:ok, receipt}
+    else
+      :ignore ->
+        {:error, {:ambiguous, {:beam_pipeline_ignored_delivery, endpoint.id}}}
+
+      {:error, {:ambiguous, _reason}} = error ->
+        error
+
+      {:error, reason} ->
+        {:error, {:ambiguous, reason}}
     end
   end
 
@@ -673,9 +728,15 @@ defmodule Spectre.Beam.Runtime do
   end
 
   @spec validate_pipeline_inbound(term(), Endpoint.t()) :: :ok | {:error, term()}
-  defp validate_pipeline_inbound(%Inbound{endpoint: id, channel_type: type}, endpoint)
-       when id == endpoint.id and type == endpoint.type,
-       do: :ok
+  defp validate_pipeline_inbound(%Inbound{endpoint: id, channel_type: type} = inbound, endpoint)
+       when id == endpoint.id and type == endpoint.type do
+    validate_pipeline_struct(
+      inbound,
+      &Inbound.new/1,
+      :invalid_beam_inbound_pipeline_value,
+      endpoint
+    )
+  end
 
   defp validate_pipeline_inbound(inbound, endpoint),
     do: {:error, {:invalid_beam_inbound_pipeline_value, endpoint.id, inbound}}
@@ -683,11 +744,17 @@ defmodule Spectre.Beam.Runtime do
   @spec validate_pipeline_outbound(term(), Outbound.t(), Endpoint.t()) ::
           :ok | {:error, term()}
   defp validate_pipeline_outbound(
-         %Outbound{endpoint: endpoint_id, idempotency_key: key},
+         %Outbound{endpoint: endpoint_id, idempotency_key: key} = outbound,
          %Outbound{idempotency_key: key},
-         %Endpoint{id: endpoint_id}
-       ),
-       do: :ok
+         %Endpoint{id: endpoint_id} = endpoint
+       ) do
+    validate_pipeline_struct(
+      outbound,
+      &Outbound.new/1,
+      :invalid_beam_outbound_pipeline_value,
+      endpoint
+    )
+  end
 
   defp validate_pipeline_outbound(outbound, _original, endpoint),
     do: {:error, {:invalid_beam_outbound_pipeline_value, endpoint.id, outbound}}
@@ -695,14 +762,29 @@ defmodule Spectre.Beam.Runtime do
   @spec validate_pipeline_receipt(term(), Outbound.t(), Endpoint.t()) ::
           :ok | {:error, term()}
   defp validate_pipeline_receipt(
-         %Receipt{endpoint: endpoint_id, outbound_id: outbound_id},
+         %Receipt{endpoint: endpoint_id, outbound_id: outbound_id} = receipt,
          %Outbound{idempotency_key: outbound_id},
-         %Endpoint{id: endpoint_id}
-       ),
-       do: :ok
+         %Endpoint{id: endpoint_id} = endpoint
+       ) do
+    validate_pipeline_struct(
+      receipt,
+      &Receipt.new/1,
+      :invalid_beam_receipt_pipeline_value,
+      endpoint
+    )
+  end
 
   defp validate_pipeline_receipt(receipt, _outbound, endpoint),
     do: {:error, {:invalid_beam_receipt_pipeline_value, endpoint.id, receipt}}
+
+  @spec validate_pipeline_struct(term(), (term() -> term()), atom(), Endpoint.t()) ::
+          :ok | {:error, term()}
+  defp validate_pipeline_struct(value, validator, error, endpoint) do
+    _validated = validator.(value)
+    :ok
+  rescue
+    _exception -> {:error, {error, endpoint.id, value}}
+  end
 
   @spec deliver_reply(module(), Inbound.t(), String.t(), String.t(), keyword()) ::
           {:ok, Receipt.t()} | {:error, term()}
@@ -780,7 +862,9 @@ defmodule Spectre.Beam.Runtime do
   @spec store_call({module(), keyword()}, atom(), list()) :: term()
   defp store_call({module, opts}, callback, args) do
     if Code.ensure_loaded?(module) and function_exported?(module, callback, length(args) + 1) do
-      apply(module, callback, args ++ [opts])
+      module
+      |> apply(callback, args ++ [opts])
+      |> normalize_store_reply(module, callback)
     else
       {:error, {:invalid_beam_idempotency_store, module, callback}}
     end
@@ -790,6 +874,20 @@ defmodule Spectre.Beam.Runtime do
   catch
     kind, reason -> {:error, {:beam_idempotency_store_failure, module, callback, kind, reason}}
   end
+
+  @spec normalize_store_reply(term(), module(), atom()) :: term()
+  defp normalize_store_reply(reply, _module, :claim)
+       when reply == :ok or reply == :in_progress,
+       do: reply
+
+  defp normalize_store_reply({:duplicate, _value} = reply, _module, :claim), do: reply
+  defp normalize_store_reply({:error, _reason} = reply, _module, _callback), do: reply
+
+  defp normalize_store_reply(:ok, _module, callback) when callback in [:complete, :release],
+    do: :ok
+
+  defp normalize_store_reply(reply, module, callback),
+    do: {:error, {:invalid_beam_idempotency_store_reply, module, callback, reply}}
 
   @spec release_with_error({module(), keyword()}, term(), term()) :: {:error, term()}
   defp release_with_error(store, key, reason) do

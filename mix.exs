@@ -1,7 +1,7 @@
 defmodule SpectreBeam.MixProject do
   use Mix.Project
 
-  @version "0.1.6"
+  @version "0.2.0"
   @source_url "https://github.com/elchemista/spectre_beam"
 
   def project do
@@ -13,7 +13,6 @@ defmodule SpectreBeam.MixProject do
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       description: "External-channel adapters and delivery boundary for Spectre agents.",
-      package: package(),
       dialyzer: [plt_add_apps: [:mix]],
       docs: docs(),
       source_url: @source_url,
@@ -30,26 +29,17 @@ defmodule SpectreBeam.MixProject do
 
   defp deps do
     [
-      {:spectre, github: "elchemista/spectre", branch: "main", only: :test},
+      {:spectre, github: "elchemista/spectre", tag: "0.2.0", only: :test},
       {:ex_doc, "~> 0.40", only: :dev, runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false}
     ]
   end
 
-  defp package do
-    [
-      maintainers: ["elchemista"],
-      files: ~w(lib docs mix.exs README.md CHANGELOG.md LICENSE),
-      licenses: ["Apache-2.0"],
-      links: %{"GitHub" => @source_url}
-    ]
-  end
-
   defp docs do
     [
       main: "readme",
-      source_ref: "main",
+      source_ref: "v#{@version}",
       extras: ["README.md", "docs/PUBLIC_API.md", "CHANGELOG.md", "LICENSE"]
     ]
   end

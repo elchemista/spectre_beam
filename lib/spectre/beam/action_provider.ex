@@ -40,28 +40,62 @@ defmodule Spectre.Beam.ActionProvider do
 
   def execute(action, ctx, opts) when is_map(action) and is_map(ctx) do
     endpoint = Keyword.fetch!(opts, :endpoint)
-    context_opts = Map.get(ctx, :opts, [])
 
-    with :ok <- validate_action(action, endpoint),
+    with {:ok, context_opts} <- context_opts(ctx),
+         :ok <- validate_action(action, endpoint),
          {:ok, target} <- resolve_target(arg(action.args, :to), endpoint, ctx),
          {:ok, content} <- content(action.name, action.args, ctx),
-         idempotency_key when is_binary(idempotency_key) <-
-           Keyword.get(context_opts, :idempotency_key),
-         outbound <-
-           Outbound.new(%{
-             endpoint: endpoint.id,
-             conversation_id: arg(action.args, :conversation_id, target),
-             to: target,
-             reply_to: arg(action.args, :reply_to),
-             content: content,
-             idempotency_key: idempotency_key,
-             metadata: %{kind: :proactive}
-           }) do
+         {:ok, idempotency_key} <- idempotency_key(context_opts),
+         {:ok, outbound} <- build_outbound(action, endpoint, target, content, idempotency_key) do
       Runtime.deliver(endpoint, outbound, Keyword.put(context_opts, :agent, Map.get(ctx, :agent)))
-    else
-      nil -> {:error, :missing_beam_idempotency_key}
-      {:error, _reason} = error -> error
     end
+  end
+
+  @spec context_opts(map()) :: {:ok, keyword()} | {:error, term()}
+  defp context_opts(ctx) do
+    case Map.get(ctx, :opts, []) do
+      opts when is_list(opts) ->
+        if Keyword.keyword?(opts),
+          do: {:ok, opts},
+          else: {:error, {:invalid_beam_action_context_options, opts}}
+
+      opts ->
+        {:error, {:invalid_beam_action_context_options, opts}}
+    end
+  end
+
+  @spec idempotency_key(keyword()) :: {:ok, String.t()} | {:error, term()}
+  defp idempotency_key(opts) do
+    case Keyword.get(opts, :idempotency_key) do
+      key when is_binary(key) ->
+        if String.trim(key) == "",
+          do: {:error, :missing_beam_idempotency_key},
+          else: {:ok, key}
+
+      nil ->
+        {:error, :missing_beam_idempotency_key}
+
+      key ->
+        {:error, {:invalid_beam_idempotency_key, key}}
+    end
+  end
+
+  @spec build_outbound(map(), Endpoint.t(), term(), Content.t(), String.t()) ::
+          {:ok, Outbound.t()} | {:error, term()}
+  defp build_outbound(action, endpoint, target, content, idempotency_key) do
+    {:ok,
+     Outbound.new(%{
+       endpoint: endpoint.id,
+       conversation_id: arg(action.args, :conversation_id, target),
+       to: target,
+       reply_to: arg(action.args, :reply_to),
+       content: content,
+       idempotency_key: idempotency_key,
+       metadata: %{kind: :proactive}
+     })}
+  rescue
+    exception in ArgumentError ->
+      {:error, {:invalid_beam_action_outbound, Exception.message(exception)}}
   end
 
   def schema_hash(action, opts) when is_map(action) do
@@ -224,24 +258,37 @@ defmodule Spectre.Beam.ActionProvider do
   defp resolve_target(target, endpoint, ctx) do
     resolver = endpoint.target_resolver
 
-    cond do
-      is_atom(resolver) and function_exported?(resolver, :resolve, 3) ->
-        resolver.resolve(target, endpoint, ctx)
+    result =
+      cond do
+        is_atom(resolver) and function_exported?(resolver, :resolve, 3) ->
+          resolver.resolve(target, endpoint, ctx)
 
-      is_atom(resolver) and function_exported?(resolver, :resolve, 2) ->
-        resolver.resolve(target, endpoint)
+        is_atom(resolver) and function_exported?(resolver, :resolve, 2) ->
+          resolver.resolve(target, endpoint)
 
-      is_function(resolver, 3) ->
-        resolver.(target, endpoint, ctx)
+        is_function(resolver, 3) ->
+          resolver.(target, endpoint, ctx)
 
-      true ->
-        {:error, {:invalid_beam_target_resolver, endpoint.id, resolver}}
-    end
+        true ->
+          {:error, {:invalid_beam_target_resolver, endpoint.id, resolver}}
+      end
+
+    normalize_target_reply(result, endpoint)
   rescue
     exception -> {:error, {:beam_target_resolver_exception, endpoint.id, exception.__struct__}}
   catch
     kind, reason -> {:error, {:beam_target_resolver_failure, endpoint.id, kind, reason}}
   end
+
+  @spec normalize_target_reply(term(), Endpoint.t()) :: {:ok, term()} | {:error, term()}
+  defp normalize_target_reply({:ok, nil}, endpoint),
+    do: {:error, {:missing_beam_target, endpoint.id}}
+
+  defp normalize_target_reply({:ok, target}, _endpoint), do: {:ok, target}
+  defp normalize_target_reply({:error, _reason} = error, _endpoint), do: error
+
+  defp normalize_target_reply(reply, endpoint),
+    do: {:error, {:invalid_beam_target_resolver_reply, endpoint.id, reply}}
 
   @spec arg(map(), atom(), term()) :: term()
   defp arg(args, key, default \\ nil) when is_map(args) and is_atom(key) do

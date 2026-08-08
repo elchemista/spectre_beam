@@ -4,11 +4,30 @@ All notable changes to Spectre Beam are documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- Corrected the local token-bucket reservation algorithm so callers arriving
+  between already-booked slots no longer accumulate phantom rate-limit debt.
+- Kept outbound idempotency claims fenced after provider success when receipt
+  pipelines or store persistence fail, preventing bookkeeping failures from
+  causing duplicate external messages.
+- Revalidated pipeline-transformed inbound, outbound, content, and receipt
+  values instead of allowing malformed structs to bypass boundary invariants.
+- Made retry-filter failures provider-neutral and retryable later, accepted
+  valid zero-wait throttle reservations, and fixed inclusive reply-delay
+  ranges.
+- Reported ExWapp delivery as acknowledged only when an acknowledgement was
+  actually awaited, and preserved media payloads for normalized typed events.
+- Normalized invalid action-provider resolver replies, idempotency keys, and
+  identity/Instance options into stable errors instead of runtime exceptions.
+
+## [0.2.0] - 2026-08-08
+
 ### Added
 
 - Delivery logistics on every endpoint, applied while the outbound
   idempotency claim is held: `typing:` (provider typing indicator through the
-  new optional `Spectre.Beam.Channel.typing/3` callback), `reply_delay_ms:`
+  new optional `c:Spectre.Beam.Channel.typing/3` callback), `reply_delay_ms:`
   (fixed or `{min, max}` randomized pause between the typing signal and the
   provider call), `retry:` (bounded exponential backoff for plain adapter
   errors — ambiguous outcomes are never retried), and `throttle:` (outbound
@@ -33,15 +52,17 @@ All notable changes to Spectre Beam are documented in this file.
 ### Changed
 
 - Removed Spectre from Beam's runtime dependency graph. The repository now
-  consumes `elchemista/spectre` from GitHub `main` only in `MIX_ENV=test`.
-- Kept the Beam package at `0.1.6`; the Stack manifest declares compatibility
-  with Spectre `~> 0.2.0` without pretending Beam itself has a `0.2.0` release.
+  consumes the `elchemista/spectre` GitHub `0.2.0` tag only in `MIX_ENV=test`.
+- Aligned the Beam package and Stack manifest at `0.2.0`, compatible with
+  Spectre `~> 0.2.0`.
 - Late-bound the Stack, Agent, action-provider, identity, Instance, Turn, and
   Journal integration through Spectre's public contracts.
 - Added direct configuration and delivery entry points for using the Beam
   channel boundary independently of an Agent.
 - Retained the full Spectre integration, ExGram, ExWapp, pipeline,
-  idempotency, and recovery test suites against Spectre GitHub `main`.
+  idempotency, and recovery test suites against Spectre GitHub `0.2.0`.
+- Made distribution GitHub-only by removing Hex package metadata and package
+  build CI, and pinned the test dependency to the Spectre GitHub `0.2.0` tag.
 
 ## [0.1.6] - 2026-07-31
 
@@ -51,5 +72,6 @@ All notable changes to Spectre Beam are documented in this file.
   public API manifest and complete release documentation.
 - Added no runtime functionality and made no intentional breaking API change.
 
-[Unreleased]: https://github.com/elchemista/spectre_beam/compare/v0.1.6...HEAD
+[Unreleased]: https://github.com/elchemista/spectre_beam/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/elchemista/spectre_beam/compare/v0.1.6...v0.2.0
 [0.1.6]: https://github.com/elchemista/spectre_beam/compare/v0.1.5...v0.1.6

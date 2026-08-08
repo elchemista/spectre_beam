@@ -61,6 +61,15 @@ defmodule Spectre.Beam.LogisticsTest.RecordingAdapter do
   end
 end
 
+defmodule Spectre.Beam.LogisticsTest.ZeroWaitThrottle do
+  @moduledoc false
+
+  @behaviour Spectre.Beam.Throttle
+
+  @impl true
+  def reserve(_key, _config, _opts), do: {:wait, 0}
+end
+
 defmodule Spectre.Beam.LogisticsTest do
   use ExUnit.Case, async: false
 
@@ -70,6 +79,7 @@ defmodule Spectre.Beam.LogisticsTest do
   alias Spectre.Beam.LogisticsTest.OptsProvider
   alias Spectre.Beam.LogisticsTest.Provider
   alias Spectre.Beam.LogisticsTest.RecordingAdapter
+  alias Spectre.Beam.LogisticsTest.ZeroWaitThrottle
   alias Spectre.Beam.Receipt
   alias Spectre.Beam.Store
   alias Spectre.Beam.Throttle.Local
@@ -144,6 +154,14 @@ defmodule Spectre.Beam.LogisticsTest do
     assert System.monotonic_time(:millisecond) - started_at < 1_000
   end
 
+  test "fixed reply-delay ranges retain their configured delay" do
+    beam = beam(reply_delay_ms: {5, 5})
+    started_at = System.monotonic_time(:millisecond)
+
+    assert {:ok, %Receipt{}} = deliver(beam, "fixed-delay")
+    assert System.monotonic_time(:millisecond) - started_at >= 5
+  end
+
   test "retry policy retries plain errors with backoff and returns the receipt" do
     beam = beam(retry: [max_attempts: 3, base_delay_ms: 10])
 
@@ -193,6 +211,20 @@ defmodule Spectre.Beam.LogisticsTest do
     assert :counters.get(counter, 1) == 1
   end
 
+  test "retry filters fail closed without stranding the idempotency claim" do
+    retry_on = fn _reason -> raise "broken retry filter" end
+    beam = beam(retry: [max_attempts: 3, base_delay_ms: 10, retry_on: retry_on])
+    counter = :counters.new(1, [])
+
+    assert {:error, {:beam_retry_filter_exception, RuntimeError}} =
+             deliver(beam, "retry-filter", counter: counter, adapter_opts: [fail_until: 99])
+
+    assert :counters.get(counter, 1) == 1
+
+    assert {:ok, %Receipt{}} =
+             deliver(beam, "retry-filter", counter: counter, adapter_opts: [fail_until: 1])
+  end
+
   test "endpoint throttle spaces consecutive sends" do
     beam = beam(throttle: [min_delay_ms: 90])
     started_at = System.monotonic_time(:millisecond)
@@ -225,6 +257,11 @@ defmodule Spectre.Beam.LogisticsTest do
              deliver(beam, "saturated-2")
   end
 
+  test "custom throttles may reserve an immediately available zero-wait slot" do
+    beam = beam(throttle: {ZeroWaitThrottle, []})
+    assert {:ok, %Receipt{}} = deliver(beam, "zero-wait")
+  end
+
   test "Throttle.Local paces per conversation and per endpoint bucket" do
     config = [per_conversation: [min_delay_ms: 200]]
 
@@ -238,6 +275,23 @@ defmodule Spectre.Beam.LogisticsTest do
     assert :ok = Local.reserve({:tg, "b"}, bucket, [])
     assert {:wait, bucket_wait} = Local.reserve({:tg, "c"}, bucket, [])
     assert bucket_wait > 0 and bucket_wait <= 150
+  end
+
+  test "Throttle.Local does not accumulate phantom token debt between reservations" do
+    config = [messages_per_second: 5.0, burst: 1]
+
+    assert :ok = Local.reserve({:token_debt, "first"}, config, [])
+    assert {:wait, first_wait} = Local.reserve({:token_debt, "second"}, config, [])
+    assert first_wait > 0
+
+    Process.sleep(div(first_wait, 2))
+
+    assert {:wait, later_wait} = Local.reserve({:token_debt, "third"}, config, [])
+
+    # The third slot is two intervals after the first, minus the time already
+    # elapsed. A negative-token implementation incorrectly returns roughly
+    # two complete intervals here.
+    assert later_wait < first_wait * 2 - 20
   end
 
   test "logistics options do not leak into adapter opts" do

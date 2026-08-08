@@ -62,9 +62,10 @@ defmodule Spectre.Beam.Adapters.ExWapp do
   @impl true
   def deliver(%Outbound{} = outbound, opts) do
     with {:ok, module} <- Common.provider_module(opts, @provider),
-         {:ok, client} <- Common.client(opts),
-         reply <- deliver_content(module, client, outbound, opts) do
-      normalize_delivery(reply, outbound, opts)
+         {:ok, client} <- Common.client(opts) do
+      await_ack? = Keyword.get(opts, :await_ack, false) == true and is_pid(client)
+      reply = deliver_content(module, client, outbound, opts, await_ack?)
+      normalize_delivery(reply, outbound, await_ack?)
     end
   end
 
@@ -113,7 +114,7 @@ defmodule Spectre.Beam.Adapters.ExWapp do
 
     data =
       case kind do
-        :media ->
+        kind when kind in [:media, :photo, :image, :video, :audio, :voice_note, :document] ->
           Common.get(normalized, :media) ||
             Common.get(message, :media) ||
             normalized
@@ -143,13 +144,12 @@ defmodule Spectre.Beam.Adapters.ExWapp do
       end
   end
 
-  @spec deliver_content(module(), term(), Outbound.t(), keyword()) :: term()
-  defp deliver_content(module, client, outbound, opts) do
+  @spec deliver_content(module(), term(), Outbound.t(), keyword(), boolean()) :: term()
+  defp deliver_content(module, client, outbound, opts, await_ack?) do
     content = outbound.content
     send_opts = Common.send_options(outbound, opts)
-    await_ack? = Keyword.get(opts, :await_ack, false) == true
 
-    case {content.type, await_ack? and is_pid(client)} do
+    case {content.type, await_ack?} do
       {:text, true} ->
         awaited_text(
           module,
@@ -228,14 +228,13 @@ defmodule Spectre.Beam.Adapters.ExWapp do
     end
   end
 
-  @spec normalize_delivery(term(), Outbound.t(), keyword()) ::
+  @spec normalize_delivery(term(), Outbound.t(), boolean()) ::
           {:ok, Spectre.Beam.Receipt.t()} | {:error, term()}
-  defp normalize_delivery(reply, outbound, opts) do
-    if reply == {:error, :ack_timeout} and Keyword.get(opts, :await_ack, false) do
+  defp normalize_delivery(reply, outbound, await_ack?) do
+    if reply == {:error, :ack_timeout} and await_ack? do
       {:error, {:ambiguous, :ack_timeout}}
     else
-      dispatch =
-        if Keyword.get(opts, :await_ack, false), do: :acknowledged, else: :synchronous
+      dispatch = if await_ack?, do: :acknowledged, else: :synchronous
 
       Common.normalize_delivery(reply, outbound, dispatch)
     end
