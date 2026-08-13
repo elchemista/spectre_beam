@@ -24,6 +24,8 @@ defmodule Spectre.Beam.Identity do
          {:ok, authenticated_at} <- authenticated_at(opts),
          {:ok, metadata} <- identity_metadata(opts),
          :ok <- ensure_core(@external_identity) do
+      # Spectre is intentionally late-bound and absent from Beam's runtime deps.
+      # credo:disable-for-lines:2 Credo.Check.Refactor.Apply
       identity =
         apply(@external_identity, :new, [
           [
@@ -62,9 +64,13 @@ defmodule Spectre.Beam.Identity do
          {:ok, agent_ref} <- normalize_agent_ref(agent),
          {:ok, identity} <- external_identity(inbound, opts),
          :ok <- ensure_core(@subject_registry),
+         # Spectre is intentionally late-bound and absent from Beam's runtime deps.
+         # credo:disable-for-lines:2 Credo.Check.Refactor.Apply
          {:ok, subject, _link} <-
            apply(@subject_registry, :resolve, [subject_registry_server, agent_ref, identity]),
          :ok <- ensure_core(@instance_registry) do
+      # Spectre is intentionally late-bound and absent from Beam's runtime deps.
+      # credo:disable-for-lines:2 Credo.Check.Refactor.Apply
       @instance_registry
       |> apply(:ensure_started, [
         supervisor,
@@ -84,6 +90,8 @@ defmodule Spectre.Beam.Identity do
 
   @spec normalize_agent_ref(module() | map()) :: {:ok, map()} | {:error, term()}
   defp normalize_agent_ref(%{__struct__: @agent_ref} = ref) do
+    # Spectre is intentionally late-bound and absent from Beam's runtime deps.
+    # credo:disable-for-next-line Credo.Check.Refactor.Apply
     case apply(@agent_ref, :validate, [ref]) do
       :ok -> {:ok, ref}
       {:error, reason} -> {:error, reason}
@@ -92,6 +100,8 @@ defmodule Spectre.Beam.Identity do
 
   defp normalize_agent_ref(agent) when is_atom(agent) and not is_nil(agent) do
     with :ok <- ensure_core(@agent_ref) do
+      # Spectre is intentionally late-bound and absent from Beam's runtime deps.
+      # credo:disable-for-next-line Credo.Check.Refactor.Apply
       {:ok, apply(@agent_ref, :new, [agent])}
     end
   rescue
@@ -117,6 +127,8 @@ defmodule Spectre.Beam.Identity do
 
   defp sender_present(%Inbound{sender: sender}) do
     with :ok <- ensure_core(@run_value) do
+      # Spectre is intentionally late-bound and absent from Beam's runtime deps.
+      # credo:disable-for-next-line Credo.Check.Refactor.Apply
       case apply(@run_value, :validate, [sender, [:beam, :external_identity, :sender]]) do
         :ok -> :ok
         {:error, reason} -> {:error, {:invalid_beam_external_identity_sender, reason}}

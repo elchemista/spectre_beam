@@ -4,6 +4,16 @@ All notable changes to Spectre Beam are documented in this file.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-08-13
+
+### Changed
+
+- Replaced the test-only Spectre Git dependency with
+  `{:spectre, "~> 0.3.0", only: :test}` while retaining Beam's GitHub-only
+  distribution.
+- Aligned the package version and Stack manifest with Spectre Hex `0.3.0`
+  while keeping Spectre outside Beam's runtime dependency graph.
+
 ### Fixed
 
 - Corrected the local token-bucket reservation algorithm so callers arriving
@@ -72,6 +82,7 @@ All notable changes to Spectre Beam are documented in this file.
   public API manifest and complete release documentation.
 - Added no runtime functionality and made no intentional breaking API change.
 
-[Unreleased]: https://github.com/elchemista/spectre_beam/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/elchemista/spectre_beam/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/elchemista/spectre_beam/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/elchemista/spectre_beam/compare/v0.1.6...v0.2.0
 [0.1.6]: https://github.com/elchemista/spectre_beam/compare/v0.1.5...v0.1.6

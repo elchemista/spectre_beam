@@ -1,9 +1,9 @@
-# Spectre Beam public API — 0.2.0
+# Spectre Beam public API — 0.3.0
 
-This manifest describes the supported `spectre_beam` `0.2.0` surface. Beam has
+This manifest describes the supported `spectre_beam` `0.3.0` surface. Beam has
 no runtime Mix dependency on Spectre. Its Spectre-facing callbacks are
-nevertheless public and are tested against the `elchemista/spectre` GitHub
-`0.2.0` tag through a test-only dependency.
+nevertheless public and are tested against Spectre Hex `~> 0.3.0` through a
+test-only dependency.
 
 Default arguments expand into every callable arity. Documented types and
 documented struct fields on the listed modules are public. Anything not listed
@@ -62,7 +62,8 @@ are documented on `Spectre.Beam.Logistics` and `Spectre.Beam.Throttle`.
 
 ## Compatibility boundary
 
-The `spectre: "~> 0.2.0"` value returned by `Spectre.Beam.manifest/0` is Stack
+The `spectre: "~> 0.3.0"` value returned by `Spectre.Beam.manifest/0` is Stack
 compatibility metadata. It does not create a Mix dependency. Applications that
-use the integrated Agent path must include both GitHub dependencies; callers
-using only `new/2`, `decode/4`, and `deliver/4` do not need Spectre.
+use the integrated Agent path must include Spectre from Hex and Beam from its
+GitHub release; callers using only `new/2`, `decode/4`, and `deliver/4` do not
+need Spectre.
