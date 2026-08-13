@@ -86,6 +86,8 @@ defmodule Spectre.Beam.Runtime do
     }
 
     if Code.ensure_loaded?(@input) and function_exported?(@input, :new, 1) do
+      # Spectre is intentionally late-bound and absent from Beam's runtime deps.
+      # credo:disable-for-next-line Credo.Check.Refactor.Apply
       apply(@input, :new, [attrs])
     else
       raise ArgumentError, "Spectre is required to convert a Beam inbound into Spectre.Input"
@@ -653,6 +655,8 @@ defmodule Spectre.Beam.Runtime do
   @spec session_agent(GenServer.server()) :: {:ok, module()} | {:error, term()}
   defp session_agent(session) do
     if Code.ensure_loaded?(@session) and function_exported?(@session, :agent, 1) do
+      # Spectre is intentionally late-bound and absent from Beam's runtime deps.
+      # credo:disable-for-next-line Credo.Check.Refactor.Apply
       {:ok, apply(@session, :agent, [session])}
     else
       {:error, {:invalid_spectre_session, session}}
@@ -806,6 +810,8 @@ defmodule Spectre.Beam.Runtime do
   end
 
   @spec reply_key(map()) :: String.t()
+  # Spectre is intentionally late-bound and absent from Beam's runtime deps.
+  # credo:disable-for-next-line Credo.Check.Refactor.Apply
   defp reply_key(ref), do: "beam-reply:" <> apply(@run_ref, :token, [ref])
 
   @spec legacy_reply_key(map(), Inbound.t()) :: String.t()
@@ -824,6 +830,8 @@ defmodule Spectre.Beam.Runtime do
 
   @spec visible_reply?(map()) :: boolean()
   defp visible_reply?(result) do
+    # Spectre is intentionally late-bound and absent from Beam's runtime deps.
+    # credo:disable-for-lines:2 Credo.Check.Refactor.Apply
     Code.ensure_loaded?(@result) and function_exported?(@result, :visible_reply?, 1) and
       apply(@result, :visible_reply?, [result])
   end
@@ -831,6 +839,8 @@ defmodule Spectre.Beam.Runtime do
   @spec uuid7() :: String.t()
   defp uuid7 do
     if Code.ensure_loaded?(@identity) and function_exported?(@identity, :uuid7, 0),
+      # Spectre is intentionally late-bound and absent from Beam's runtime deps.
+      # credo:disable-for-next-line Credo.Check.Refactor.Apply
       do: apply(@identity, :uuid7, []),
       else: Base.url_encode64(:crypto.strong_rand_bytes(16), padding: false)
   end
@@ -900,6 +910,8 @@ defmodule Spectre.Beam.Runtime do
     case Keyword.get(opts, :agent) do
       agent when is_atom(agent) and not is_nil(agent) ->
         if Code.ensure_loaded?(@journal) and function_exported?(@journal, :record, 4) do
+          # Spectre is intentionally late-bound and absent from Beam's runtime deps.
+          # credo:disable-for-lines:2 Credo.Check.Refactor.Apply
           _result =
             apply(@journal, :record, [
               agent,

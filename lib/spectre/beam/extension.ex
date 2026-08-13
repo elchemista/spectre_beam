@@ -116,6 +116,8 @@ defmodule Spectre.Beam.Extension do
   def action_providers(%Config{} = config) do
     Enum.map(config.endpoints, fn endpoint ->
       if Code.ensure_loaded?(@provider_mount) and function_exported?(@provider_mount, :new, 3) do
+        # Spectre is intentionally late-bound and absent from Beam's runtime deps.
+        # credo:disable-for-next-line Credo.Check.Refactor.Apply
         apply(@provider_mount, :new, [
           {:beam, endpoint.id},
           ActionProvider,

@@ -50,9 +50,9 @@ defmodule Spectre.Beam.StackContractTest do
     assert {:ok, package} = V1.verify_installable(Spectre.Beam)
 
     assert package.id == :beam
-    assert package.version == "0.2.0"
+    assert package.version == "0.3.0"
     assert package.contract == 1
-    assert package.spectre == "~> 0.2.0"
+    assert package.spectre == "~> 0.3.0"
     assert package.dsl == Spectre.Beam
     assert package.provides == [{:service, :beam}]
     assert package.operations == []
@@ -61,19 +61,19 @@ defmodule Spectre.Beam.StackContractTest do
     assert package.agent_extensions == [Spectre.Beam.Extension]
   end
 
-  test "keeps Spectre on GitHub 0.2.0 and outside the runtime dependency graph" do
-    refute Keyword.has_key?(Mix.Project.config(), :package)
+  test "keeps Hex Spectre 0.3.0 outside the runtime dependency graph" do
+    config = Mix.Project.config()
+    refute Keyword.has_key?(config, :package)
 
-    assert {:spectre, opts} =
-             Mix.Project.config()
+    assert {:spectre, "~> 0.3.0", opts} =
+             config
              |> Keyword.fetch!(:deps)
              |> Enum.find(&(elem(&1, 0) == :spectre))
 
-    assert opts[:github] == "elchemista/spectre"
-    assert opts[:tag] == "0.2.0"
     assert opts[:only] == :test
     refute Keyword.has_key?(opts, :path)
-    refute Keyword.has_key?(opts, :hex)
+    refute Keyword.has_key?(opts, :git)
+    refute Keyword.has_key?(opts, :github)
     refute Keyword.has_key?(opts, :runtime)
   end
 

@@ -76,10 +76,12 @@ defmodule Spectre.Beam.LogisticsTest do
   alias Spectre.Beam.Adapters.ExGram
   alias Spectre.Beam.Adapters.ExWapp
   alias Spectre.Beam.Content
+  alias Spectre.Beam.Endpoint
   alias Spectre.Beam.LogisticsTest.OptsProvider
   alias Spectre.Beam.LogisticsTest.Provider
   alias Spectre.Beam.LogisticsTest.RecordingAdapter
   alias Spectre.Beam.LogisticsTest.ZeroWaitThrottle
+  alias Spectre.Beam.Outbound
   alias Spectre.Beam.Receipt
   alias Spectre.Beam.Store
   alias Spectre.Beam.Throttle.Local
@@ -296,7 +298,7 @@ defmodule Spectre.Beam.LogisticsTest do
 
   test "logistics options do not leak into adapter opts" do
     endpoint =
-      Spectre.Beam.Endpoint.new(:main,
+      Endpoint.new(:main,
         adapter: RecordingAdapter,
         typing: true,
         reply_delay_ms: 10,
@@ -324,7 +326,7 @@ defmodule Spectre.Beam.LogisticsTest do
 
   test "awaited sends with options use send_await: or fail loudly, never dropping them" do
     outbound =
-      Spectre.Beam.Outbound.new(%{
+      Outbound.new(%{
         endpoint: :main,
         conversation_id: "conv-1",
         to: "user-1",
@@ -365,7 +367,7 @@ defmodule Spectre.Beam.LogisticsTest do
 
   test "text sends pass send_opts when the provider supports them" do
     outbound =
-      Spectre.Beam.Outbound.new(%{
+      Outbound.new(%{
         endpoint: :main,
         conversation_id: "conv-1",
         to: "user-1",

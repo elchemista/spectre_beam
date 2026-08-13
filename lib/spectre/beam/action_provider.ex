@@ -137,6 +137,8 @@ defmodule Spectre.Beam.ActionProvider do
     }
 
     if Code.ensure_loaded?(@spec_module) and function_exported?(@spec_module, :new, 1) do
+      # Spectre is intentionally late-bound and absent from Beam's runtime deps.
+      # credo:disable-for-next-line Credo.Check.Refactor.Apply
       apply(@spec_module, :new, [attrs])
     else
       Map.put(attrs, :schema_hash, schema_hash(attrs))

@@ -15,7 +15,7 @@ defmodule Spectre.Beam do
   alias Spectre.Beam.Receipt
   alias Spectre.Beam.Runtime
 
-  @version "0.2.0"
+  @version "0.3.0"
   @spectre_extension :"Elixir.Spectre.Extension"
 
   @doc "Returns the Beam package version."
@@ -33,7 +33,7 @@ defmodule Spectre.Beam do
       module: __MODULE__,
       version: @version,
       contract: 1,
-      spectre: "~> 0.2.0",
+      spectre: "~> 0.3.0",
       provides: [{:service, :beam}],
       agent_extensions: [Spectre.Beam.Extension],
       dsl: __MODULE__
@@ -44,6 +44,8 @@ defmodule Spectre.Beam do
     quote do
       import Spectre.Beam, only: [beaming: 1, channel: 2, beam: 2]
 
+      # Spectre is intentionally late-bound and absent from Beam's runtime deps.
+      # credo:disable-for-next-line Credo.Check.Refactor.Apply
       apply(
         :"Elixir.Spectre.Extension",
         :register!,
@@ -110,6 +112,8 @@ defmodule Spectre.Beam do
   @spec config(module()) :: {:ok, Config.t()} | {:error, term()}
   def config(agent) when is_atom(agent) do
     with :ok <- ensure_core(@spectre_extension),
+         # Spectre is intentionally late-bound and absent from Beam's runtime deps.
+         # credo:disable-for-next-line Credo.Check.Refactor.Apply
          {:ok, mount} <- apply(@spectre_extension, :fetch, [agent, :beam]),
          %Config{} = config <- Map.get(mount, :compiled) do
       {:ok, config}

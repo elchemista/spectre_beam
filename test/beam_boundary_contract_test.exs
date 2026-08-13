@@ -413,7 +413,11 @@ defmodule Spectre.Beam.BoundaryContractTest do
       assert_raise ArgumentError, fn -> Content.new(attrs) end
     end
 
-    assert_raise ArgumentError, fn -> apply(Content, :new, [%Content{type: nil}]) end
+    assert_raise ArgumentError, fn ->
+      # Deliberately bypasses the public typespec to exercise runtime validation.
+      # credo:disable-for-next-line Credo.Check.Refactor.Apply
+      apply(Content, :new, [%Content{type: nil}])
+    end
 
     inbound =
       Inbound.new(

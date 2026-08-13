@@ -1,7 +1,7 @@
 defmodule SpectreBeam.MixProject do
   use Mix.Project
 
-  @version "0.2.0"
+  @version "0.3.0"
   @source_url "https://github.com/elchemista/spectre_beam"
 
   def project do
@@ -29,7 +29,7 @@ defmodule SpectreBeam.MixProject do
 
   defp deps do
     [
-      {:spectre, github: "elchemista/spectre", tag: "0.2.0", only: :test},
+      {:spectre, "~> 0.3.0", only: :test},
       {:ex_doc, "~> 0.40", only: :dev, runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false}
