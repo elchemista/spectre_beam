@@ -1,7 +1,7 @@
 defmodule SpectreBeam.MixProject do
   use Mix.Project
 
-  @version "0.3.0"
+  @version "0.1.0"
   @source_url "https://github.com/elchemista/spectre_beam"
 
   def project do
@@ -29,11 +29,21 @@ defmodule SpectreBeam.MixProject do
 
   defp deps do
     [
-      {:spectre, "~> 0.3.0", only: :test},
+      spectre_dep(),
       {:ex_doc, "~> 0.40", only: :dev, runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false}
     ]
+  end
+
+  defp spectre_dep do
+    case System.get_env("SPECTRE_PATH") do
+      path when is_binary(path) and path != "" ->
+        {:spectre, path: Path.expand(path, __DIR__), only: :test, override: true}
+
+      _unset ->
+        {:spectre, "~> 0.3.2", only: :test}
+    end
   end
 
   defp docs do
