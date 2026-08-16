@@ -61,17 +61,30 @@ defmodule Spectre.Beam.StackContractTest do
     assert package.agent_extensions == [Spectre.Beam.Extension]
   end
 
-  test "keeps Hex Spectre 0.3.0 outside the runtime dependency graph" do
+  test "selects the configured Spectre source outside the runtime dependency graph" do
     config = Mix.Project.config()
     refute Keyword.has_key?(config, :package)
 
-    assert {:spectre, "~> 0.3.0", opts} =
-             config
-             |> Keyword.fetch!(:deps)
-             |> Enum.find(&(elem(&1, 0) == :spectre))
+    dependency =
+      config
+      |> Keyword.fetch!(:deps)
+      |> Enum.find(&(elem(&1, 0) == :spectre))
+
+    opts =
+      case System.get_env("SPECTRE_PATH") do
+        path when is_binary(path) and path != "" ->
+          assert {:spectre, opts} = dependency
+          assert opts[:path] == Path.expand(path, File.cwd!())
+          assert opts[:override]
+          opts
+
+        _unset ->
+          assert {:spectre, "~> 0.3.2", opts} = dependency
+          refute Keyword.has_key?(opts, :path)
+          opts
+      end
 
     assert opts[:only] == :test
-    refute Keyword.has_key?(opts, :path)
     refute Keyword.has_key?(opts, :git)
     refute Keyword.has_key?(opts, :github)
     refute Keyword.has_key?(opts, :runtime)
