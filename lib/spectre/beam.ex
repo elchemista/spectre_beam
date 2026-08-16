@@ -15,7 +15,7 @@ defmodule Spectre.Beam do
   alias Spectre.Beam.Receipt
   alias Spectre.Beam.Runtime
 
-  @version "0.3.0"
+  @version "0.1.0"
   @spectre_extension :"Elixir.Spectre.Extension"
 
   @doc "Returns the Beam package version."

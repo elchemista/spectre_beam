@@ -1,6 +1,6 @@
-# Spectre Beam public API — 0.3.0
+# Spectre Beam public API — 0.1.0
 
-This manifest describes the supported `spectre_beam` `0.3.0` surface. Beam has
+This manifest describes the supported `spectre_beam` `0.1.0` surface. Beam has
 no runtime Mix dependency on Spectre. Its Spectre-facing callbacks are
 nevertheless public and are tested against Spectre Hex `~> 0.3.0` through a
 test-only dependency.
