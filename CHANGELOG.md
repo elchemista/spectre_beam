@@ -72,6 +72,13 @@ All notable changes to Spectre Beam are documented in this file.
 - Added `{:jason, "~> 1.4", optional: true}`. It is used only for JSON framing
   on the control socket and is never required.
 
+### Fixed
+
+- Lazy Agent gateways now rehydrate provider runtime settings retained by the
+  compiled endpoint, including `client`, `ingress`, coalescing, queue bounds,
+  and overflow policy. ExGram and ExWapp therefore keep the same resolved
+  client and subscription lifecycle as explicitly supervised gateways.
+
 
 ## [0.3.0] - 2026-08-13
 

@@ -217,6 +217,41 @@ defmodule Spectre.Beam.Gateway.SpecTest do
     assert {:ok, %{coalesce_ms: 25, max_queue: 3}} = Spec.channel(spec, :local)
   end
 
+  test "rehydrates provider runtime options stored in a compiled endpoint" do
+    client = {__MODULE__, :client, []}
+
+    beam =
+      Config.new([
+        Endpoint.new(:provider,
+          type: :provider,
+          adapter: Local,
+          client: client,
+          ingress: :subscribe,
+          coalesce_ms: 25,
+          max_pending: 7,
+          max_queue: 11,
+          overflow: :drop_oldest,
+          typing: true,
+          throttle: [messages_per_second: 2.0],
+          retry: [max_attempts: 3]
+        )
+      ])
+
+    assert {:ok, spec} = Spec.new(name: :provider_reuse, beam: beam)
+    assert {:ok, channel} = Spec.channel(spec, :provider)
+    assert channel.client == client
+    assert channel.ingress == :subscribe
+    assert channel.coalesce_ms == 25
+    assert channel.max_pending == 7
+    assert channel.max_queue == 11
+    assert channel.overflow == :drop_oldest
+
+    assert {:ok, endpoint} = Spec.endpoint(spec, :provider)
+    assert endpoint.metadata.typing
+    assert endpoint.metadata.throttle == [messages_per_second: 2.0]
+    assert endpoint.metadata.retry == [max_attempts: 3]
+  end
+
   test "rejects runtime declarations for endpoints absent from a reused config" do
     beam = Config.new([Endpoint.new(:local, type: :local, adapter: Local)])
 

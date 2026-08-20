@@ -203,7 +203,14 @@ defmodule Spectre.Beam.Gateway.Spec do
           {:ok, %{optional(term()) => channel()}} | {:error, term()}
   defp reduce_channels(endpoints, declarations, opts, gateway_scope) do
     Enum.reduce_while(endpoints, {:ok, %{}}, fn endpoint, {:ok, acc} ->
-      channel_opts = Keyword.get(declarations, endpoint.id, [])
+      # A Config compiled by `use Spectre.Beam` keeps gateway-only declarations
+      # in Endpoint.opts. Rehydrate them here so the lazy Agent gateway retains
+      # provider clients, ingress lifecycle, queue bounds, and conversation
+      # settings just like an explicitly declared Gateway does.
+      channel_opts =
+        endpoint.opts
+        |> Keyword.take(@channel_keys)
+        |> Keyword.merge(Keyword.get(declarations, endpoint.id, []))
 
       case build_channel(channel_opts, opts, gateway_scope) do
         {:ok, channel} -> {:cont, {:ok, Map.put(acc, endpoint.id, channel)}}
