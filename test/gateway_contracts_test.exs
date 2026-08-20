@@ -32,6 +32,11 @@ defmodule Spectre.Beam.RefTest do
     assert {:error, {:invalid_beam_ref, "telegram"}} = Ref.parse("telegram")
     assert {:error, {:invalid_beam_ref, ":42"}} = Ref.parse(":42")
     assert {:error, {:invalid_beam_ref, 42}} = Ref.parse(42)
+
+    ref = Ref.new(endpoint: :telegram, conversation_id: "one")
+    assert Ref.parse(ref) == {:ok, ref}
+
+    assert_raise ArgumentError, ~r/invalid Beam reference/, fn -> Ref.parse!("invalid") end
   end
 
   test "builds from a normalized inbound" do
@@ -67,6 +72,22 @@ defmodule Spectre.Beam.RefTest do
     assert_raise ArgumentError, ~r/endpoint/, fn ->
       Ref.new(endpoint: "", conversation_id: "1")
     end
+
+    assert_raise ArgumentError, ~r/gateway/, fn ->
+      Ref.new(gateway: "not-an-atom", endpoint: :chat, conversation_id: "1")
+    end
+
+    assert_raise ArgumentError, ~r/conversation_id/, fn ->
+      Ref.new(endpoint: :chat, conversation_id: nil)
+    end
+
+    assert_raise ArgumentError, ~r/agent/, fn ->
+      Ref.new(endpoint: :chat, conversation_id: "1", agent: "not-a-module")
+    end
+
+    assert_raise ArgumentError, ~r/endpoint/, fn ->
+      Ref.new(endpoint: 12, conversation_id: "1")
+    end
   end
 
   test "prints as its address" do
@@ -94,6 +115,11 @@ defmodule Spectre.Beam.EventTest do
 
   test "carries the contract version", %{ref: ref} do
     assert Event.new(:reply, ref, %{text: "hi"}).v == Event.version()
+  end
+
+  test "prints a compact event address", %{ref: ref} do
+    event = Event.new(:reply, ref, %{text: "hi"}, seq: 7)
+    assert inspect(event) == "#Beam.Event<reply chat:1 #7 %{text: \"hi\"}>"
   end
 
   # A transport must never silently lose an event because one field of its
@@ -270,5 +296,55 @@ defmodule Spectre.Beam.Gateway.SpecTest do
                  channels: [local: channel_opts]
                )
     end
+  end
+
+  test "validates all gateway and ingress declaration shapes" do
+    base = [name: :validated, channels: [local: [adapter: Local]]]
+
+    assert {:error, {:invalid_beam_gateway_name, nil}} = Spec.new(channels: [])
+    assert {:error, {:invalid_beam_gateway_name, "bad"}} = Spec.new(name: "bad", channels: [])
+
+    assert {:error, {:invalid_beam_gateway_channels, %{}}} =
+             Spec.new(name: :bad_channels, channels: %{})
+
+    assert {:error, {:invalid_beam_gateway_channels, [1]}} =
+             Spec.new(name: :bad_channels, channels: [1])
+
+    assert {:error, {:invalid_beam_gateway_config, :bad}} = Spec.new(base ++ [beam: :bad])
+    assert {:error, {:invalid_beam_gateway_scope, :global}} = Spec.new(base ++ [scope: :global])
+
+    for {key, value, reason} <- [
+          {:overflow, :oldest, {:invalid_beam_outbox_overflow, :oldest}},
+          {:ingress, :webhook, {:invalid_beam_ingress, :webhook}},
+          {:ingress, {:poll, []}, {:invalid_beam_ingress_fetch, nil}},
+          {:turn_opts, [1], {:invalid_beam_gateway_setting, :turn_opts, [1]}},
+          {:idle_timeout_ms, :never, {:invalid_beam_gateway_setting, :idle_timeout_ms, :never}}
+        ] do
+      opts = [name: :invalid_shape, channels: [local: [{:adapter, Local}, {key, value}]]]
+      assert {:error, {:invalid_beam_channel, :local, ^reason}} = Spec.new(opts)
+    end
+
+    assert {:ok, infinite} =
+             Spec.new(
+               name: :infinite,
+               store: Spectre.Beam.Store,
+               channels: [local: [adapter: Local, idle_timeout_ms: :infinity]]
+             )
+
+    assert infinite.store == {Spectre.Beam.Store, []}
+    assert {:ok, %{idle_timeout_ms: :infinity}} = Spec.channel(infinite, :local)
+
+    assert_raise ArgumentError, ~r/invalid Beam gateway store/, fn ->
+      Spec.new(base ++ [store: "invalid"])
+    end
+
+    assert {:ok, overridden} =
+             Spec.new(
+               name: :agent_override,
+               agent: DefaultAgent,
+               channels: [local: [adapter: Local, agent: ChannelAgent]]
+             )
+
+    assert Spec.agent_for(overridden, :local) == ChannelAgent
   end
 end

@@ -119,6 +119,19 @@ defmodule Spectre.Beam.Store.ETSTest do
   test "reports a store that is not running instead of raising" do
     assert {:error, {:beam_store_not_started, :missing_store}} =
              ETS.claim(:key, name: :missing_store)
+
+    assert {:error, {:beam_store_not_started, :missing_store}} =
+             ETS.complete(:key, :value, name: :missing_store)
+
+    assert {:error, {:beam_store_not_started, :missing_store}} =
+             ETS.release(:key, name: :missing_store)
+  end
+
+  test "periodic sweeping and unrelated messages keep the owner alive", %{name: name} do
+    send(name, :unrelated)
+    send(name, :sweep)
+    Process.sleep(10)
+    assert Process.alive?(Process.whereis(name))
   end
 
   test "reset clears every entry", %{store: store, name: name} do

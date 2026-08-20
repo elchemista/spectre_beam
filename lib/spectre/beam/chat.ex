@@ -39,9 +39,9 @@ defmodule Spectre.Beam.Chat do
   """
 
   alias Spectre.Beam.Bus
+  alias Spectre.Beam.Console
   alias Spectre.Beam.Content
   alias Spectre.Beam.Conversation
-  alias Spectre.Beam.Console
   alias Spectre.Beam.Event
   alias Spectre.Beam.Gateway
   alias Spectre.Beam.Gateway.Spec

@@ -23,6 +23,20 @@ defmodule Spectre.Beam.GatewayTest.Agent do
   end
 end
 
+defmodule Spectre.Beam.GatewayTest.ErrorStore do
+  @moduledoc false
+  def claim(_key, _opts), do: {:error, :store_down}
+  def complete(_key, _value, _opts), do: :ok
+  def release(_key, _opts), do: :ok
+end
+
+defmodule Spectre.Beam.GatewayTest.RaisingStore do
+  @moduledoc false
+  def claim(_key, _opts), do: raise("store down")
+  def complete(_key, _value, _opts), do: :ok
+  def release(_key, _opts), do: :ok
+end
+
 defmodule Spectre.Beam.GatewayTest do
   use ExUnit.Case, async: false
 
@@ -224,6 +238,99 @@ defmodule Spectre.Beam.GatewayTest do
 
       assert :ok = Gateway.close(gateway, ref)
       assert Gateway.conversations(gateway) == []
+    end
+  end
+
+  describe "gateway boundary APIs" do
+    test "decodes, ingests normalized values and delivers maps and structs" do
+      gateway = start_gateway([])
+
+      assert {:ok, inbound} =
+               Gateway.decode(gateway, :chat, %{
+                 text: "hello",
+                 conversation_id: "normalized",
+                 message_id: "normalized-1"
+               })
+
+      assert inbound.endpoint == :chat
+      assert {:ok, ref} = Gateway.ingest_inbound(gateway, inbound, deduplicate: false)
+      assert Ref.slug(ref) == "chat:normalized"
+
+      attrs = %{
+        conversation_id: "direct",
+        to: "direct",
+        content: %{type: :text, text: "direct delivery"},
+        idempotency_key: "direct-1"
+      }
+
+      assert {:ok, receipt} = Gateway.deliver(gateway, :chat, attrs)
+      assert receipt.status == :accepted
+      assert {:ok, %{content: %{text: "direct delivery"}}} = Adapters.Test.next_delivery()
+
+      outbound =
+        attrs
+        |> Map.put(:endpoint, :chat)
+        |> Map.put(:idempotency_key, "direct-2")
+        |> Spectre.Beam.Outbound.new()
+
+      assert {:ok, _receipt} = Gateway.deliver(gateway, :chat, outbound)
+      assert {:ok, _delivery} = Adapters.Test.next_delivery()
+    end
+
+    test "returns stable errors for missing gateways, endpoints and malformed values" do
+      gateway = start_gateway([])
+
+      assert Gateway.endpoints(:missing_gateway) == []
+      assert Gateway.decode(:missing_gateway, :chat, %{}) == {:error, :not_found}
+
+      assert {:error, {:unknown_beam_endpoint, :missing}} =
+               Gateway.deliver(gateway, :missing, %{})
+
+      assert {:error, {:invalid_beam_outbound, :chat, :bad}} =
+               Gateway.deliver(gateway, :chat, :bad)
+
+      assert {:error, {:invalid_beam_ref, 12}} = Gateway.open(gateway, 12)
+
+      assert {:ok, spec} = Gateway.spec(gateway)
+      assert {:error, {:invalid_beam_ref, 12}} = Gateway.resolve(spec, 12, [])
+      assert :ok = Gateway.complete_claim(spec, nil, :done)
+      assert :ok = Gateway.release_claim(spec, nil)
+      assert {:error, :not_managed} = Gateway.stop(gateway)
+      assert :ok = Gateway.stop(:never_started_gateway)
+      assert {:error, {:invalid_beam_gateway_name, nil}} = Gateway.start_link([])
+
+      assert {:error, {:invalid_beam_outbound, _reason}} =
+               Gateway.push(gateway, "chat:bad-content", 12)
+
+      assert {:error, {:invalid_beam_outbound, :chat, _reason}} =
+               Gateway.deliver(gateway, :chat, %{content: Spectre.Beam.Content.text("missing")})
+
+      assert {:ok, ref} =
+               Gateway.push(gateway, "chat:content", Spectre.Beam.Content.text("content struct"))
+
+      assert Ref.slug(ref) == "chat:content"
+    end
+
+    test "normalizes idempotency store errors" do
+      for {store, expected} <- [
+            {Spectre.Beam.GatewayTest.ErrorStore, {:error, :store_down}},
+            {Spectre.Beam.GatewayTest.RaisingStore,
+             {:error, {:beam_idempotency_store_exception, RuntimeError}}}
+          ] do
+        name = :"gateway_store_#{System.unique_integer([:positive])}"
+
+        start_supervised!(
+          {Gateway,
+           name: name, store: {store, []}, channels: [chat: [type: :test, adapter: Adapters.Test]]}
+        )
+
+        assert ^expected =
+                 Gateway.ingest(name, :chat, %{
+                   text: "hello",
+                   conversation_id: "one",
+                   message_id: "one"
+                 })
+      end
     end
   end
 end

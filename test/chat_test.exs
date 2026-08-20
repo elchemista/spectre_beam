@@ -192,6 +192,74 @@ defmodule Spectre.Beam.ChatTest do
     assert Gateway.conversations(gateway) == []
     assert {:error, :not_found} = Chat.status(Ref.parse!("console:ten", gateway: gateway))
   end
+
+  test "validates timeouts and handles duplicate blocking asks", %{gateway: gateway} do
+    {:ok, ref} = Chat.open(gateway, "console:timeouts")
+    assert {:error, {:invalid_beam_timeout, :later}} = Chat.ask(ref, "question", timeout: :later)
+    assert {:ok, _reply} = Chat.ask(ref, "question", timeout: :infinity, message_id: "same")
+
+    assert {:error, :duplicate_beam_inbound} =
+             Chat.ask(ref, "question", timeout: 100, message_id: "same")
+  end
+
+  test "accepts content structs and endpoint subscriptions", %{gateway: gateway} do
+    {:ok, ref} = Chat.open(gateway, "console:content")
+    assert :ok = Chat.subscribe_endpoint(gateway, :console)
+    assert {:ok, ^ref} = Chat.send(ref, Spectre.Beam.Content.text("question"))
+    assert_receive %Event{type: :inbound}, 1_000
+
+    missing = %{ref | gateway: :missing_gateway}
+    assert Chat.unsubscribe(missing) == :ok
+  end
+
+  test "publishes custom events and accepts normalized inbound directly", %{gateway: gateway} do
+    {:ok, ref} = Chat.open(gateway, "console:direct")
+    :ok = Chat.subscribe(ref)
+    assert :ok = Spectre.Beam.Conversation.publish(ref, :delta, %{text: "piece"})
+    assert_receive %Event{type: :delta, payload: %{text: "piece"}}
+
+    assert {:ok, inbound} =
+             Gateway.decode(gateway, :console, %{
+               text: "question",
+               conversation_id: "direct",
+               message_id: "direct-inbound"
+             })
+
+    assert :ok = Spectre.Beam.Conversation.ingest(ref, inbound)
+    assert_receive %Event{type: :inbound}, 1_000
+
+    process = Spectre.Beam.Conversation.whereis(ref)
+    send(process, :unrelated_message)
+    Process.sleep(5)
+    assert Process.alive?(process)
+
+    missing = %{ref | conversation_id: "missing"}
+    assert Spectre.Beam.Conversation.cancel(missing) == :ok
+  end
+
+  test "bounds transcripts and retires idle conversations" do
+    gateway = :"beam_short_lived_#{System.unique_integer([:positive])}"
+
+    start_supervised!(
+      {Gateway,
+       name: gateway,
+       channels: [
+         console: [
+           type: :console,
+           adapter: Adapters.Local,
+           transcript_limit: 1,
+           idle_timeout_ms: 30
+         ]
+       ]}
+    )
+
+    {:ok, ref} = Chat.open(gateway, "console:short")
+    assert {:ok, ^ref} = Chat.send(ref, "hello")
+    Process.sleep(10)
+    assert length(Chat.history(ref)) <= 1
+    Process.sleep(80)
+    assert Spectre.Beam.Conversation.whereis(ref) == nil
+  end
 end
 
 defmodule Spectre.Beam.ZeroConfigChatTest do

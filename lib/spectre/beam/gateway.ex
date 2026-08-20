@@ -416,7 +416,7 @@ defmodule Spectre.Beam.Gateway do
        metadata: Keyword.get(opts, :metadata, %{kind: :proactive})
      })}
   rescue
-    exception in ArgumentError ->
+    exception in [ArgumentError, FunctionClauseError] ->
       {:error, {:invalid_beam_outbound, Exception.message(exception)}}
   end
 
@@ -432,7 +432,7 @@ defmodule Spectre.Beam.Gateway do
     attrs = if is_list(attrs), do: Map.new(attrs), else: attrs
     {:ok, attrs |> Map.put(:endpoint, endpoint.id) |> Outbound.new()}
   rescue
-    exception in ArgumentError ->
+    exception in [ArgumentError, FunctionClauseError] ->
       {:error, {:invalid_beam_outbound, endpoint.id, Exception.message(exception)}}
   end
 
