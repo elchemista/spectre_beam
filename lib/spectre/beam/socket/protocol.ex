@@ -19,7 +19,10 @@ defmodule Spectre.Beam.Socket.Protocol do
   alias Spectre.Beam.Gateway
   alias Spectre.Beam.Ref
 
-  @type state :: %{gateway: atom(), subscriptions: MapSet.t(String.t())}
+  # Keep the opaque at the type exported by MapSet.new/0. OTP 28 correctly
+  # rejects refining an empty opaque container to String.t() at construction;
+  # protocol operations still only insert normalized Ref slugs.
+  @type state :: %{gateway: atom(), subscriptions: MapSet.t()}
 
   @default_ask_timeout :timer.seconds(60)
 
