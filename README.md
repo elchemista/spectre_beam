@@ -109,6 +109,220 @@ defmodule MyApp.AI do
 end
 ```
 
+## Custom channel adapters: REST and MCP
+
+`Spectre.Beam.Gateway` is transport-neutral. A custom transport implements the
+`Spectre.Beam.Channel` behaviour; Beam continues to provide conversation
+serialization, pipelines, idempotency, typing, throttling, retry, and the
+bounded outbox around that adapter.
+
+### REST API channel
+
+For a REST integration, `decode/2` turns the webhook body into an inbound and
+`deliver/2` sends the eventual reply through the remote API:
+
+```elixir
+defmodule MyApp.BeamAdapters.Rest do
+  @behaviour Spectre.Beam.Channel
+
+  alias Spectre.Beam.{Content, Inbound, Receipt}
+
+  @impl true
+  def capabilities(_opts), do: [:text]
+
+  @impl true
+  def decode(payload, _opts) do
+    {:ok,
+     Inbound.new(%{
+       message_id: payload["id"],
+       conversation_id: payload["conversation_id"],
+       sender: payload["user_id"],
+       content: Content.text(payload["text"]),
+       metadata: %{transport: :rest}
+     })}
+  end
+
+  @impl true
+  def deliver(outbound, opts) do
+    client = Keyword.fetch!(opts, :client)
+
+    case client.post_message(%{
+           conversation_id: outbound.conversation_id,
+           reply_to: outbound.reply_to,
+           text: outbound.content.text
+         }) do
+      {:ok, response} ->
+        {:ok,
+         Receipt.accepted(outbound,
+           provider_message_id: response.id,
+           metadata: %{transport: :rest}
+         )}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @impl true
+  def typing(user_id, composing?, opts) do
+    opts
+    |> Keyword.fetch!(:client)
+    |> then(& &1.set_typing(user_id, composing?))
+  end
+end
+```
+
+Mount it like any bundled provider:
+
+```elixir
+install Spectre.Beam do
+  channel :rest,
+    type: :rest,
+    adapter: MyApp.BeamAdapters.Rest,
+    client: {MyApp.RemoteAPI, :new, []},
+    typing: true,
+    throttle: [messages_per_second: 10, burst: 20],
+    retry: [max_attempts: 3, base_delay_ms: 250]
+end
+```
+
+The HTTP controller is only responsible for authentication and ingress:
+
+```elixir
+def create(conn, payload) do
+  case Spectre.Beam.Gateway.ingest(MyApp.SupportAgent, :rest, payload) do
+    {:ok, ref} -> json(conn, %{accepted: true, conversation: Spectre.Beam.Ref.slug(ref)})
+    {:duplicate, _ref} -> send_resp(conn, 202, "")
+    :ignore -> send_resp(conn, 204, "")
+    {:error, reason} -> json(conn, %{error: inspect(reason)})
+  end
+end
+```
+
+Start the Agent gateway during application boot when the REST endpoint must be
+available before any local IEx or LiveView call:
+
+```elixir
+{:ok, MyApp.SupportAgent} = Spectre.Beam.Gateway.ensure(MyApp.SupportAgent)
+```
+
+### MCP as a synchronous tool
+
+If MCP exposes only a synchronous `ask_agent` tool, it does not need a channel
+adapter. The tool handler can use the local Chat surface directly:
+
+```elixir
+def ask_agent(%{"conversation_id" => id, "text" => text}) do
+  with {:ok, ref} <-
+         Spectre.Beam.Chat.open(MyApp.SupportAgent, conversation: id),
+       {:ok, reply} <- Spectre.Beam.Chat.ask(ref, text, timeout: 60_000) do
+    {:ok, %{"text" => reply, "conversation_id" => id}}
+  end
+end
+```
+
+This is appropriate when one MCP request remains open until one complete
+answer is available.
+
+### MCP as a conversational channel
+
+Use an MCP channel adapter when MCP sessions should behave like Telegram,
+WhatsApp, or any other long-lived transport: requests enter asynchronously,
+conversations remain serialized, and replies or progress notifications are
+sent later through the same MCP session.
+
+```elixir
+defmodule MyApp.BeamAdapters.MCP do
+  @behaviour Spectre.Beam.Channel
+
+  alias Spectre.Beam.{Content, Gateway, Inbound, Receipt}
+
+  @impl true
+  def capabilities(_opts), do: [:text]
+
+  @impl true
+  def decode(request, _opts) do
+    {:ok,
+     Inbound.new(%{
+       # Beam copies this value to outbound.reply_to, providing correlation
+       # between the asynchronous delivery and the original MCP request.
+       message_id: request.id,
+       conversation_id: request.session_id,
+       sender: request.client_id,
+       content: Content.text(request.params["text"]),
+       metadata: %{transport: :mcp}
+     })}
+  end
+
+  @impl true
+  def deliver(outbound, opts) do
+    server = Keyword.fetch!(opts, :client)
+
+    case server.respond(outbound.reply_to, %{"text" => outbound.content.text}) do
+      :ok ->
+        {:ok,
+         Receipt.accepted(outbound,
+           provider_message_id: to_string(outbound.reply_to),
+           metadata: %{transport: :mcp}
+         )}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @impl true
+  def typing(client_id, composing?, opts) do
+    # Map this to a progress or notification primitive when the selected MCP
+    # transport provides one. Typing is best effort in Beam.
+    opts
+    |> Keyword.fetch!(:client)
+    |> then(& &1.progress(client_id, composing?))
+  end
+
+  @impl true
+  def subscribe(opts) do
+    server = Keyword.fetch!(opts, :client)
+    gateway = Keyword.fetch!(opts, :gateway)
+    endpoint = Keyword.fetch!(opts, :endpoint)
+
+    server.subscribe(fn request ->
+      Gateway.ingest(gateway, endpoint, request)
+    end)
+  end
+
+  @impl true
+  def unsubscribe(opts) do
+    opts
+    |> Keyword.fetch!(:client)
+    |> then(& &1.unsubscribe())
+  end
+end
+```
+
+The Stack declaration retains the same delivery controls used by ExGram and
+ExWapp:
+
+```elixir
+install Spectre.Beam do
+  channel :mcp,
+    type: :mcp,
+    adapter: MyApp.BeamAdapters.MCP,
+    client: {MyApp.MCPServer, :session, []},
+    ingress: :subscribe,
+    typing: true,
+    throttle: [messages_per_second: 20, per_conversation: [messages_per_minute: 120]],
+    retry: [max_attempts: 3],
+    max_queue: 1_000,
+    overflow: :reject
+end
+```
+
+The MCP server must keep the original request pending, or retain an equivalent
+session/request correlation, until `deliver/2` answers it. Beam preserves the
+inbound `message_id` as `outbound.reply_to`, so the adapter does not need a
+parallel correlation mechanism.
+
 ## Delivery logistics
 
 Conversational channel plumbing — pacing, typing, a human reply delay, and
