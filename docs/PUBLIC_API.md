@@ -12,7 +12,7 @@ is an implementation detail even when exported.
 ## Manifest
 
 - `Spectre.Beam`
-  - functions: `compile/3`, `config/1`, `decode/3`, `decode/4`, `deliver/3`, `deliver/4`, `external_identity/1`, `external_identity/2`, `handle/3`, `handle/4`, `handle_instance/4`, `handle_instance/5`, `manifest/0`, `new/1`, `new/2`, `reply/3`, `reply/4`, `resolve_instance/3`, `resolve_instance/4`, `subscribe/2`, `subscribe/3`, `to_input/1`, `unsubscribe/2`, `unsubscribe/3`, `version/0`
+  - functions: `ask/2`, `ask/3`, `compile/3`, `config/1`, `decode/3`, `decode/4`, `deliver/3`, `deliver/4`, `external_identity/1`, `external_identity/2`, `handle/3`, `handle/4`, `handle_instance/4`, `handle_instance/5`, `manifest/0`, `new/1`, `new/2`, `open/1`, `open/2`, `reply/3`, `reply/4`, `resolve_instance/3`, `resolve_instance/4`, `subscribe/2`, `subscribe/3`, `to_input/1`, `unsubscribe/2`, `unsubscribe/3`, `version/0`
   - macros: `beam/2`, `beaming/1`, `channel/2`
 - `Spectre.Beam.ActionProvider`
   - Spectre callbacks: `actions/1`, `execute/3`, `schema_hash/2`
@@ -61,11 +61,11 @@ function boundary above keeps working unchanged, and a host that never starts
 `Spectre.Beam.Gateway` never starts any of these processes.
 
 - `Spectre.Beam.Gateway`
-  - functions: `close/2`, `conversations/1`, `decode/3`, `decode/4`, `deliver/3`, `deliver/4`, `endpoints/1`, `ingest/3`, `ingest/4`, `ingest_inbound/2`, `ingest_inbound/3`, `list/0`, `open/2`, `open/3`, `push/3`, `push/4`, `resolve/3`, `spec/1`, `start_link/1`
+  - functions: `close/2`, `conversations/1`, `decode/3`, `decode/4`, `deliver/3`, `deliver/4`, `endpoints/1`, `ensure/1`, `ensure/2`, `ingest/3`, `ingest/4`, `ingest_inbound/2`, `ingest_inbound/3`, `list/0`, `open/2`, `open/3`, `push/3`, `push/4`, `resolve/3`, `spec/1`, `start_link/1`, `stop/1`
 - `Spectre.Beam.Gateway.Spec`
   - functions: `agent_for/2`, `channel/2`, `endpoint/2`, `endpoints/1`, `new/1`
 - `Spectre.Beam.Chat`
-  - functions: `ask/2`, `ask/3`, `cancel/1`, `close/1`, `history/1`, `history/2`, `open/2`, `open/3`, `push/2`, `push/3`, `send/2`, `send/3`, `status/1`, `subscribe/1`, `subscribe_endpoint/2`, `unsubscribe/1`
+  - functions: `ask/2`, `ask/3`, `cancel/1`, `close/1`, `history/1`, `history/2`, `open/1`, `open/2`, `open/3`, `push/2`, `push/3`, `send/2`, `send/3`, `status/1`, `subscribe/1`, `subscribe_endpoint/2`, `unsubscribe/1`
 - `Spectre.Beam.Conversation`
   - functions: `cancel/1`, `history/1`, `history/2`, `ingest/2`, `ingest/3`, `name/1`, `publish/3`, `status/1`, `whereis/1`
 - `Spectre.Beam.Outbox`

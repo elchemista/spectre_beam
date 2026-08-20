@@ -99,7 +99,7 @@ defmodule Spectre.Beam.Console do
   defp gateway(opts) do
     case Keyword.get(opts, :gateway) do
       name when is_atom(name) and not is_nil(name) ->
-        {:ok, name}
+        Gateway.ensure(name)
 
       _unset ->
         case Gateway.list() do

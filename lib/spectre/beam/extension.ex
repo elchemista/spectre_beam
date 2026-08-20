@@ -8,6 +8,7 @@ defmodule Spectre.Beam.Extension do
   """
 
   alias Spectre.Beam.ActionProvider
+  alias Spectre.Beam.Adapters.Local
   alias Spectre.Beam.Config
   alias Spectre.Beam.Endpoint
 
@@ -37,6 +38,8 @@ defmodule Spectre.Beam.Extension do
   end
 
   def compile(owner, opts) do
+    stack? = Keyword.has_key?(opts, :stack_config)
+
     {declarations, options} =
       case Keyword.fetch(opts, :stack_config) do
         {:ok, %{channels: channels} = config} ->
@@ -51,10 +54,47 @@ defmodule Spectre.Beam.Extension do
           {declarations, opts}
       end
 
+    declarations = add_local_channel(declarations, opts, stack?)
+
     with :ok <- unique(declarations),
          {:ok, endpoints} <- endpoints(declarations, options) do
       {:ok, Config.new(endpoints, options)}
     end
+  end
+
+  # Direct `use Spectre.Beam` is immediately useful from IEx and LiveView.
+  # Stack installations remain fully declarative and receive only the
+  # endpoints explicitly present in their installation block.
+  @spec add_local_channel([{term(), keyword() | module()}], keyword(), boolean()) ::
+          [{term(), keyword() | module()}]
+  defp add_local_channel(declarations, _opts, true), do: declarations
+
+  defp add_local_channel(declarations, opts, false) do
+    if Keyword.get(opts, :local, true) == false or local_channel?(declarations) do
+      declarations
+    else
+      declarations ++ [{local_id(declarations), [type: :local, adapter: Local]}]
+    end
+  end
+
+  @spec local_channel?([{term(), keyword() | module()}]) :: boolean()
+  defp local_channel?(declarations) do
+    Enum.any?(declarations, fn
+      {_id, Local} ->
+        true
+
+      {_id, channel_opts} when is_list(channel_opts) ->
+        Keyword.get(channel_opts, :adapter) == Local
+
+      _other ->
+        false
+    end)
+  end
+
+  @spec local_id([{term(), term()}]) :: atom()
+  defp local_id(declarations) do
+    ids = MapSet.new(declarations, &elem(&1, 0))
+    if MapSet.member?(ids, :local), do: :beam_local, else: :local
   end
 
   def agent_config(%Config{} = config), do: [beam: config]

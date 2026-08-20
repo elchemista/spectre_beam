@@ -41,6 +41,21 @@ defmodule Spectre.Beam.ChatTest.StampPlug do
   def call(pipeline, _opts), do: pipeline
 end
 
+defmodule Spectre.Beam.ZeroConfigAgent do
+  @moduledoc false
+
+  use Spectre.Agent, prompt_root: "test/fixtures/prompts"
+
+  model(Spectre.Beam.ChatTest.Model)
+  use Spectre.Beam
+
+  flow :local_flow do
+    on :question, regex: ~r/question/i do
+      reply(:generic_reply)
+    end
+  end
+end
+
 defmodule Spectre.Beam.ChatTest do
   use ExUnit.Case, async: false
 
@@ -176,5 +191,48 @@ defmodule Spectre.Beam.ChatTest do
     assert Chat.history(ref) == []
     assert Gateway.conversations(gateway) == []
     assert {:error, :not_found} = Chat.status(Ref.parse!("console:ten", gateway: gateway))
+  end
+end
+
+defmodule Spectre.Beam.ZeroConfigChatTest do
+  use ExUnit.Case, async: false
+
+  alias Spectre.Beam.Adapters.Local
+  alias Spectre.Beam.Chat
+  alias Spectre.Beam.Gateway
+  alias Spectre.Beam.ZeroConfigAgent
+
+  setup do
+    on_exit(fn -> Gateway.stop(ZeroConfigAgent) end)
+    :ok
+  end
+
+  test "use Spectre.Beam alone provides a supervised local conversation" do
+    assert {:ok, config} = Spectre.Beam.config(ZeroConfigAgent)
+    assert [%{id: :local, adapter: Local}] = config.endpoints
+
+    assert {:ok, ref} = Chat.open(ZeroConfigAgent, conversation: "live-view-42")
+    assert ref.gateway == ZeroConfigAgent
+    assert ref.endpoint == :local
+    assert ref.conversation_id == "live-view-42"
+    assert {:ok, _spec} = Gateway.spec(ZeroConfigAgent)
+
+    :ok = Local.attach(ZeroConfigAgent, :local)
+    assert {:ok, reply} = Chat.ask(ref, "question", timeout: 5_000)
+    assert is_binary(reply)
+  end
+
+  test "the top-level helper and IEx helper accept the Agent module directly" do
+    assert {:ok, ref} = Chat.open(ZeroConfigAgent)
+    :ok = Local.attach(ZeroConfigAgent, :local)
+
+    assert {:ok, reply} = Spectre.Beam.ask(ZeroConfigAgent, "question", timeout: 5_000)
+    assert is_binary(reply)
+
+    assert {:ok, iex_reply} =
+             Spectre.Beam.IEx.ask(ZeroConfigAgent, "question", timeout: 5_000)
+
+    assert is_binary(iex_reply)
+    assert ref.gateway == ZeroConfigAgent
   end
 end

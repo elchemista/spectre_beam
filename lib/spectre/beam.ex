@@ -123,6 +123,22 @@ defmodule Spectre.Beam do
     end
   end
 
+  @doc """
+  Opens a fresh local conversation with an Agent using Beam.
+
+  `use Spectre.Beam` is enough: the local endpoint is compiled into the Agent
+  and its gateway is started lazily on the first call.
+  """
+  @spec open(module(), keyword()) ::
+          {:ok, Spectre.Beam.Ref.t()} | {:error, term()}
+  def open(agent, opts \\ []), do: Spectre.Beam.Chat.open(agent, opts)
+
+  @doc "Asks an Agent through its local Beam conversation and returns the reply text."
+  @spec ask(module(), String.t(), keyword()) :: {:ok, String.t()} | {:error, term()}
+  def ask(agent, text, opts \\ []) do
+    with {:ok, ref} <- open(agent, opts), do: Spectre.Beam.Chat.ask(ref, text, opts)
+  end
+
   @doc "Normalizes one provider event through a direct config or mounted Agent."
   @spec decode(Config.t() | module(), term(), term(), keyword()) ::
           {:ok, Inbound.t()} | :ignore | {:error, term()}

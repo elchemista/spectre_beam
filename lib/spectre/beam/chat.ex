@@ -41,6 +41,7 @@ defmodule Spectre.Beam.Chat do
   alias Spectre.Beam.Bus
   alias Spectre.Beam.Content
   alias Spectre.Beam.Conversation
+  alias Spectre.Beam.Console
   alias Spectre.Beam.Event
   alias Spectre.Beam.Gateway
   alias Spectre.Beam.Gateway.Spec
@@ -52,10 +53,26 @@ defmodule Spectre.Beam.Chat do
   @default_sender "local"
 
   @doc """
-  Ensures the conversation exists and returns its canonical reference.
+  Opens a fresh local conversation directly from an Agent using Beam.
+
+      {:ok, ref} = Spectre.Beam.Chat.open(MyApp.Agent)
+
+  The Agent's gateway is started lazily and supervised by Beam.
   """
+  @spec open(module()) :: {:ok, Ref.t()} | {:error, term()}
+  def open(agent) when is_atom(agent), do: open(agent, [])
+
+  @spec open(module(), keyword()) :: {:ok, Ref.t()} | {:error, term()}
+  def open(agent, opts) when is_atom(agent) and is_list(opts) do
+    with {:ok, gateway} <- Gateway.ensure(agent) do
+      Console.open(nil, Keyword.put(opts, :gateway, gateway))
+    end
+  end
+
+  @doc "Ensures a conversation exists on an explicit gateway and address."
   @spec open(atom(), Gateway.target(), keyword()) :: {:ok, Ref.t()} | {:error, term()}
-  defdelegate open(gateway, target, opts \\ []), to: Gateway
+  def open(gateway, target, opts \\ []) when is_atom(gateway) and is_list(opts),
+    do: Gateway.open(gateway, target, opts)
 
   @doc """
   Queues a message from the conversation's user and returns immediately.

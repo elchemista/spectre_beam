@@ -71,6 +71,7 @@ defmodule Spectre.Beam.Gateway do
   alias Spectre.Beam.Store
 
   @registry Spectre.Beam.Registry
+  @gateway_supervisor Spectre.Beam.GatewaySupervisor
 
   @type target :: Ref.t() | String.t()
 
@@ -120,6 +121,39 @@ defmodule Spectre.Beam.Gateway do
   @doc "Returns every gateway running on this node."
   @spec list() :: [atom()]
   defdelegate list(), to: Holder
+
+  @doc """
+  Returns a running gateway, starting one lazily from an Agent's Beam mount.
+
+  This is the zero-configuration path used by IEx and LiveView helpers. An
+  explicitly supervised gateway with the same name always wins.
+  """
+  @spec ensure(atom(), keyword()) :: {:ok, atom()} | {:error, term()}
+  def ensure(agent_or_gateway, opts \\ []) when is_atom(agent_or_gateway) and is_list(opts) do
+    case spec(agent_or_gateway) do
+      {:ok, _spec} -> {:ok, agent_or_gateway}
+      {:error, :not_found} -> start_agent_gateway(agent_or_gateway, opts)
+    end
+  end
+
+  @doc "Stops a lazily started Agent gateway. Explicit gateways remain owner-managed."
+  @spec stop(atom()) :: :ok | {:error, :not_managed}
+  def stop(gateway) when is_atom(gateway) do
+    case Registry.lookup(@registry, {:gateway_supervisor, gateway}) do
+      [{pid, _value}] -> stop_gateway(pid)
+      [] -> :ok
+    end
+  end
+
+  @spec stop_gateway(pid()) :: :ok | {:error, :not_managed}
+  defp stop_gateway(pid) do
+    case DynamicSupervisor.terminate_child(@gateway_supervisor, pid) do
+      :ok -> :ok
+      {:error, :not_found} -> {:error, :not_managed}
+    end
+  catch
+    :exit, _reason -> {:error, :not_managed}
+  end
 
   @doc """
   Normalizes one provider event and routes it to its conversation.
@@ -438,6 +472,25 @@ defmodule Spectre.Beam.Gateway do
         name = Module.concat(Keyword.get(opts, :name, __MODULE__), "IdempotencyStore")
         Keyword.put(opts, :store, {Spectre.Beam.Store.ETS, [name: name]})
     end
+  end
+
+  @spec start_agent_gateway(module(), keyword()) :: {:ok, atom()} | {:error, term()}
+  defp start_agent_gateway(agent, opts) do
+    with {:ok, beam} <- Spectre.Beam.config(agent) do
+      gateway_opts =
+        beam.options
+        |> Keyword.merge(opts)
+        |> Keyword.merge(name: agent, agent: agent, beam: beam)
+
+      case DynamicSupervisor.start_child(@gateway_supervisor, {__MODULE__, gateway_opts}) do
+        {:ok, _pid} -> {:ok, agent}
+        {:ok, _pid, _info} -> {:ok, agent}
+        {:error, {:already_started, _pid}} -> {:ok, agent}
+        {:error, reason} -> {:error, {:beam_gateway_start_failed, agent, reason}}
+      end
+    end
+  catch
+    :exit, reason -> {:error, {:beam_gateway_supervisor_unavailable, reason}}
   end
 
   # Only a store the gateway itself defaulted to is supervised here. An

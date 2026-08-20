@@ -6,6 +6,11 @@ All notable changes to Spectre Beam are documented in this file.
 
 ### Added
 
+- **Zero-configuration local chat.** Direct `use Spectre.Beam` now adds a
+  local endpoint unless disabled with `local: false`. `Spectre.Beam.open/2`,
+  `ask/3`, `Spectre.Beam.Chat.open/2`, and the IEx helpers accept an Agent
+  module directly and lazily start its gateway under Beam supervision, so
+  IEx and LiveView need no manually declared gateway child.
 - **Gateway runtime.** `Spectre.Beam.Gateway` is a supervised process plane
   over the existing function boundary: it owns the mounted endpoints, resolves
   the provider client once instead of on every call, serializes each

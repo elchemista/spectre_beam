@@ -33,6 +33,59 @@ Beam itself declares Spectre only for its integration suite:
 {:spectre, "~> 0.3.0", only: :test}
 ```
 
+## Zero-configuration local chat
+
+For IEx and LiveView, adding Beam to the Agent is enough. Beam compiles an
+implicit local channel and starts the Agent's supervised gateway on the first
+call:
+
+```elixir
+defmodule MyApp.SupportAgent do
+  use Spectre.Agent
+  use Spectre.Beam
+
+  flow :support do
+    on :question do
+      reply :support_reply
+    end
+  end
+end
+```
+
+From IEx, either call Beam directly or import the shell helpers:
+
+```elixir
+iex> Spectre.Beam.ask(MyApp.SupportAgent, "quanti ticket sono aperti?")
+{:ok, "..."}
+
+iex> import Spectre.Beam.IEx
+iex> ask MyApp.SupportAgent, "quanti ticket sono aperti?"
+{:ok, "..."}
+iex> ask "e quali sono urgenti?"  # continues on the current conversation
+{:ok, "..."}
+```
+
+In a LiveView, open by Agent module; no gateway child is required:
+
+```elixir
+def mount(%{"id" => id}, _session, socket) do
+  {:ok, ref} = Spectre.Beam.Chat.open(MyApp.SupportAgent, conversation: id)
+  if connected?(socket), do: Spectre.Beam.Chat.subscribe(ref)
+  {:ok, assign(socket, beam_ref: ref)}
+end
+
+def handle_event("send", %{"text" => text}, socket) do
+  {:ok, _ref} = Spectre.Beam.Chat.send(socket.assigns.beam_ref, text)
+  {:noreply, socket}
+end
+```
+
+Declare channels normally when providers are needed. If a process should be
+transport-only and must not expose a local channel, use
+`use Spectre.Beam, local: false`. An explicitly supervised
+`Spectre.Beam.Gateway` remains available for custom names, sockets, stores,
+clients, and production lifecycle control.
+
 ## Spectre Stack integration
 
 Beam remains directly installable in a Spectre Stack:

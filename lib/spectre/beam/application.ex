@@ -8,6 +8,7 @@ defmodule Spectre.Beam.Application do
     children = [
       {Registry, keys: :unique, name: Spectre.Beam.Registry},
       {Task.Supervisor, name: Spectre.Beam.TaskSupervisor},
+      {DynamicSupervisor, strategy: :one_for_one, name: Spectre.Beam.GatewaySupervisor},
       Spectre.Beam.Bus.Local,
       Spectre.Beam.Sequence,
       Spectre.Beam.Store,

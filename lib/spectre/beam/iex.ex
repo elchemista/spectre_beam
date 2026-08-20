@@ -95,7 +95,7 @@ defmodule Spectre.Beam.IEx do
   end
 
   @doc "Points the helpers at another conversation."
-  @spec focus(Ref.t() | String.t()) :: Ref.t() | {:error, term()}
+  @spec focus(module() | Ref.t() | String.t()) :: Ref.t() | {:error, term()}
   def focus(target) do
     case open(target) do
       {:ok, ref} -> put_current(ref)
@@ -116,7 +116,7 @@ defmodule Spectre.Beam.IEx do
   end
 
   @doc "Sends a message to an explicit conversation and prints the reply."
-  @spec say(Ref.t() | String.t(), String.t(), keyword()) :: :ok
+  @spec say(module() | Ref.t() | String.t(), String.t(), keyword()) :: :ok
   def say(target, text, opts \\ []) when is_binary(text) do
     case ask(target, text, opts) do
       {:ok, reply} -> IO.puts(reply)
@@ -131,7 +131,7 @@ defmodule Spectre.Beam.IEx do
   end
 
   @doc "Sends a message to an explicit conversation and returns the reply text."
-  @spec ask(Ref.t() | String.t(), String.t(), keyword()) ::
+  @spec ask(module() | Ref.t() | String.t(), String.t(), keyword()) ::
           {:ok, String.t()} | {:error, term()}
   def ask(target, text, opts \\ []) when is_binary(text) do
     with {:ok, ref} <- open(target) do
@@ -210,8 +210,9 @@ defmodule Spectre.Beam.IEx do
   defp resolve(nil), do: ensure_current()
   defp resolve(target), do: open(target)
 
-  @spec open(Ref.t() | String.t()) :: {:ok, Ref.t()} | {:error, term()}
+  @spec open(module() | Ref.t() | String.t()) :: {:ok, Ref.t()} | {:error, term()}
   defp open(%Ref{} = ref), do: Gateway.open(ref.gateway, ref)
+  defp open(agent) when is_atom(agent), do: Chat.open(agent)
 
   defp open(target) when is_binary(target) do
     case resolve_gateway(nil) do
