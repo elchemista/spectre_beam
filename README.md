@@ -179,6 +179,205 @@ This mode needs no Spectre module. When the application does use Spectre, it
 can place `Spectre.turn/3` between `decode/4` and `deliver/4`, or use
 `handle/4` for the integrated path.
 
+## Gateway runtime
+
+Everything above is a boundary expressed as functions: the caller owns the
+provider client, the concurrency, and the lifecycle. `Spectre.Beam.Gateway`
+adds the process plane on top, so an application declares its channels once
+and then talks to agents from anywhere in the node.
+
+```elixir
+children = [
+  {Spectre.Supervisor, name: MyApp.SpectreSupervisor},
+  {Spectre.Beam.Gateway,
+   name: MyApp.Gateway,
+   agent: MyApp.Agent,
+   supervisor: MyApp.SpectreSupervisor,
+   channels: [
+     telegram: [
+       type: :telegram,
+       adapter: Spectre.Beam.Adapters.ExGram,
+       client: {MyApp.Telegram, :session, []},
+       ingress: :subscribe,
+       coalesce_ms: 800,
+       typing: true
+     ],
+     web: [type: :web, adapter: Spectre.Beam.Adapters.Local],
+     console: [type: :console, adapter: Spectre.Beam.Adapters.Local]
+   ],
+   control: [socket: "/run/beam/gateway.sock"]}
+]
+```
+
+The gateway adds four things the function boundary cannot express:
+
+- **One process per conversation.** Two messages arriving at once on the same
+  chat no longer run overlapping turns. Inbound idempotency deduplicates the
+  *same* message; it does not order two different ones.
+- **A resolved client.** `client:` is resolved once by the endpoint process —
+  from a value, a zero-arity function, or an `{module, function, args}` — so
+  no caller has to carry it.
+- **Asynchronous delivery.** Replies go through a bounded per-endpoint outbox,
+  which is what makes reply delay, throttling and retries safe to apply
+  without blocking a LiveView or a webhook.
+- **An event bus.** Every surface observes the same `Spectre.Beam.Event`
+  values, each stamped with a monotonic per-conversation `seq`.
+
+Provider events enter through one door, whatever the transport:
+
+```elixir
+{:ok, ref} = Spectre.Beam.Gateway.ingest(MyApp.Gateway, :telegram, raw_update)
+{:ok, ref} = Spectre.Beam.Gateway.push(MyApp.Gateway, "telegram:12345", "il report è pronto")
+```
+
+A gateway declared without an `agent:` runs transport-only: inbound events are
+normalized and published, and Spectre is never called. That keeps Beam usable
+as a pure channel router.
+
+## Talking to an agent from IEx
+
+Local surfaces are not a second API — they are channels. The console, a
+LiveView, the CLI and the test suite all go through
+`Spectre.Beam.Adapters.Local`, so the pipelines, claims, throttling and policy
+that guard Telegram guard them identically.
+
+```elixir
+# .iex.exs
+import Spectre.Beam.IEx
+```
+
+```
+iex> endpoints()
+telegram      subscribe up          12 events     2026-08-20T15:04:11Z
+console       none      up          3 events      2026-08-20T15:09:02Z
+
+iex> say "quanti ticket aperti abbiamo?"
+Al momento 14 ticket aperti, 3 con SLA in scadenza.
+
+iex> say "telegram:12345", "ciao, tutto ok?"
+iex> ls()
+iex> tail "telegram:12345"
+iex> cancel()
+iex> doctor()
+```
+
+`say/1` addresses the *current* conversation, remembered in the shell process;
+the first call opens one, and `focus/1` points the helpers elsewhere. For an
+actual back-and-forth, `chat/0` takes over the shell:
+
+```
+iex> chat()
+beam · console:a7f2 · MyApp.Agent · scope session
+/help  /new  /who  /history  /stop  /endpoint ID  /exit
+
+you › quali deploy sono usciti oggi?
+bot › Tre: api@14:02, worker@15:10 e web@16:44.
+
+you › /exit
+```
+
+With distribution enabled, `iex --remsh` gives the same helpers against a
+running production node — which is full access to that node, so treat the
+shell as the credential it is.
+
+## LiveView and other OTP callers
+
+`Spectre.Beam.Chat` is the whole surface. `send/3` returns as soon as the
+message is queued and answers arrive as messages, so a slow model never blocks
+the process handling a click.
+
+```elixir
+alias Spectre.Beam.{Chat, Event}
+
+def mount(%{"id" => id}, _session, socket) do
+  {:ok, ref} = Chat.open(MyApp.Gateway, "web:" <> id)
+  if connected?(socket), do: Chat.subscribe(ref)
+
+  {:ok,
+   socket
+   |> assign(ref: ref, typing?: false)
+   |> stream(:messages, Chat.history(ref, limit: 50))}
+end
+
+def handle_event("send", %{"text" => text}, socket) do
+  {:ok, _ref} = Chat.send(socket.assigns.ref, text)
+  {:noreply, socket}
+end
+
+def handle_event("stop", _params, socket) do
+  :ok = Chat.cancel(socket.assigns.ref)
+  {:noreply, socket}
+end
+
+def handle_info(%Event{type: :inbound, payload: msg}, socket),
+  do: {:noreply, stream_insert(socket, :messages, msg)}
+
+def handle_info(%Event{type: :typing, payload: %{composing?: t}}, socket),
+  do: {:noreply, assign(socket, typing?: t)}
+
+def handle_info(%Event{type: :reply, payload: msg}, socket),
+  do: {:noreply, stream_insert(socket, :messages, msg)}
+
+def handle_info(%Event{type: :error, payload: payload}, socket),
+  do: {:noreply, put_flash(socket, :error, inspect(payload.reason))}
+```
+
+Every event carries a `seq`. After a reconnect, ask for what was missed with
+`Chat.history(ref, after: last_seq)` rather than replaying the whole
+transcript.
+
+The event types are a closed, versioned set: `:inbound`, `:typing`, `:delta`,
+`:reply`, `:receipt`, `:policy_required`, `:action`, `:status`, `:error`.
+
+## Local control socket and CLI
+
+`control: [socket: path]` exposes the gateway on a Unix domain socket with
+length-framed JSON, so a CLI, an editor plugin, or a client in any language can
+drive it without joining the cluster.
+
+```
+$ mix beam.status
+$ mix beam.send console:support "quanti ticket aperti?"
+$ mix beam.send telegram:12345 "il report è pronto" --push
+$ mix beam.tail telegram:12345
+$ mix beam.chat --socket /run/beam/gateway.sock
+$ mix beam.doctor
+```
+
+Without `--socket` the tasks start this project's application and talk to a
+gateway in the same VM; with it they attach to a gateway already running
+elsewhere — a release in production — over its control socket, loading none of
+that node's code.
+
+The socket is a full capability on the agent: anything that can write to it can
+send messages as the gateway. It is created `0600` and owned by the running
+user. Do not widen its mode to share it, and do not place it in a
+world-writable directory.
+
+## Testing a gateway
+
+`Spectre.Beam.Adapters.Test` is a real channel, so a test drives the same code
+production runs.
+
+```elixir
+setup do
+  start_supervised!(
+    {Spectre.Beam.Gateway,
+     name: :test_gateway,
+     agent: MyApp.Agent,
+     channels: [chat: [type: :test, adapter: Spectre.Beam.Adapters.Test]]}
+  )
+
+  :ok = Spectre.Beam.Adapters.Test.attach(:test_gateway, :chat)
+end
+
+test "answers a question" do
+  {:ok, _ref} = Spectre.Beam.Adapters.Test.send_inbound(:test_gateway, :chat, "question")
+  assert {:ok, outbound} = Spectre.Beam.Adapters.Test.next_delivery()
+  assert outbound.content.text =~ "risposta"
+end
+```
+
 ## Subject-scoped Agent Instances
 
 The identity-safe path keeps Spectre as the only authority that links an

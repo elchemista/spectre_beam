@@ -5,8 +5,16 @@ defmodule Spectre.Beam.Application do
 
   @impl true
   def start(_type, _args) do
-    Supervisor.start_link(
-      [Spectre.Beam.Store, Spectre.Beam.Throttle.Local],
+    children = [
+      {Registry, keys: :unique, name: Spectre.Beam.Registry},
+      {Task.Supervisor, name: Spectre.Beam.TaskSupervisor},
+      Spectre.Beam.Bus.Local,
+      Spectre.Beam.Sequence,
+      Spectre.Beam.Store,
+      Spectre.Beam.Throttle.Local
+    ]
+
+    Supervisor.start_link(children,
       strategy: :one_for_one,
       name: Spectre.Beam.Supervisor
     )

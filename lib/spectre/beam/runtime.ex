@@ -62,6 +62,41 @@ defmodule Spectre.Beam.Runtime do
     end
   end
 
+  @doc """
+  Completes the inbound boundary for an already normalized value.
+
+  A gateway surface that builds its own inbound — a console line, a LiveView
+  message, a socket frame, a replayed event — must still pass the endpoint's
+  `:after_decode` pipeline, or locally injected messages would silently skip
+  the enrichment and control plugs that guard the provider ones.
+  """
+  @spec finish_decode(Config.t(), term(), Inbound.t(), keyword()) ::
+          {:ok, Inbound.t()} | :ignore | {:error, term()}
+  def finish_decode(%Config{} = config, endpoint_id, %Inbound{} = inbound, opts \\ []) do
+    with {:ok, endpoint} <- Config.fetch(config, endpoint_id),
+         {:ok, inbound} <- normalize_inbound(inbound, endpoint),
+         {:ok, inbound} <- run_pipeline(endpoint, :after_decode, inbound, opts),
+         :ok <- validate_pipeline_inbound(inbound, endpoint) do
+      {:ok, inbound}
+    end
+  end
+
+  @doc """
+  Runs one Spectre turn against an agent module, a Session, or an Instance.
+
+  Late-bound like every other core call, so a gateway that runs without
+  Spectre installed gets a stable `{:error, :spectre_not_available}` instead of
+  an undefined function.
+  """
+  @spec turn(term(), term(), keyword()) :: {:ok, map()} | {:error, term()}
+  def turn(target, input, opts \\ []) when is_list(opts) do
+    core_call(@spectre, :turn, [target, input, opts])
+  end
+
+  @doc "Returns true when Spectre core is loaded in this runtime."
+  @spec spectre_available?() :: boolean()
+  def spectre_available?, do: Code.ensure_loaded?(@spectre)
+
   @doc false
   @spec to_input(Inbound.t()) :: term()
   def to_input(%Inbound{} = inbound) do
@@ -100,52 +135,65 @@ defmodule Spectre.Beam.Runtime do
 
   def reply(agent, %Inbound{} = inbound, turn, opts)
       when is_atom(agent) and is_map(turn) and is_list(opts) do
-    cond do
-      core_struct?(turn, @turn) ->
-        reply_turn(agent, inbound, turn, opts)
+    case observable_reply(turn, inbound) do
+      {:ok, output, idempotency_key} ->
+        deliver_reply(agent, inbound, output, idempotency_key, opts)
 
-      core_struct?(turn, @result) ->
-        {:error, :beam_turn_boundary_required}
+      :none ->
+        {:ok, nil}
 
-      true ->
-        {:error, {:invalid_beam_turn, turn}}
+      {:error, _reason} = error ->
+        error
     end
   end
 
-  @spec reply_turn(module(), Inbound.t(), map(), keyword()) ::
-          {:ok, Receipt.t() | nil} | {:error, term()}
-  defp reply_turn(agent, inbound, turn, opts) do
+  @doc """
+  Returns the observable reply of a Spectre Turn without delivering it.
+
+  `Spectre.Beam.reply/4` delivers inline, which is correct for a caller-owned
+  boundary. A gateway conversation instead needs the reply text and its stable
+  idempotency key so it can hand the outbound to an endpoint outbox and stay
+  responsive while the provider is slow.
+
+  Returns `:none` when the Turn produced nothing an external channel should
+  see — a silent decision, a pending policy, an internal-only result.
+  """
+  @spec observable_reply(map(), Inbound.t()) ::
+          {:ok, String.t(), String.t()} | :none | {:error, term()}
+  def observable_reply(turn, %Inbound{} = inbound) when is_map(turn) do
+    cond do
+      core_struct?(turn, @turn) -> turn_reply(turn, inbound)
+      core_struct?(turn, @result) -> {:error, :beam_turn_boundary_required}
+      true -> {:error, {:invalid_beam_turn, turn}}
+    end
+  end
+
+  def observable_reply(turn, _inbound), do: {:error, {:invalid_beam_turn, turn}}
+
+  @spec turn_reply(map(), Inbound.t()) :: {:ok, String.t(), String.t()} | :none
+  defp turn_reply(turn, inbound) do
     case Map.get(turn, :observable) do
       {:reply, output, ref} when is_binary(output) and is_map(ref) ->
-        if core_struct?(ref, @run_ref),
-          do: deliver_reply(agent, inbound, output, reply_key(ref), opts),
-          else: {:ok, nil}
+        if core_struct?(ref, @run_ref), do: {:ok, output, reply_key(ref)}, else: :none
 
       nil ->
-        legacy_reply(agent, inbound, Map.get(turn, :decision), opts)
+        legacy_observable(Map.get(turn, :decision), inbound)
 
       _other ->
-        {:ok, nil}
+        :none
     end
   end
 
-  @spec legacy_reply(module(), Inbound.t(), term(), keyword()) ::
-          {:ok, Receipt.t() | nil} | {:error, term()}
-  defp legacy_reply(agent, inbound, {:reply, result}, opts) when is_map(result) do
-    if core_struct?(result, @result) and visible_reply?(result) do
-      deliver_reply(
-        agent,
-        inbound,
-        Map.get(result, :reply_text),
-        legacy_reply_key(result, inbound),
-        opts
-      )
-    else
-      {:ok, nil}
-    end
+  @spec legacy_observable(term(), Inbound.t()) :: {:ok, String.t(), String.t()} | :none
+  defp legacy_observable({:reply, result}, inbound) when is_map(result) do
+    text = Map.get(result, :reply_text)
+
+    if is_binary(text) and core_struct?(result, @result) and visible_reply?(result),
+      do: {:ok, text, legacy_reply_key(result, inbound)},
+      else: :none
   end
 
-  defp legacy_reply(_agent, _inbound, _decision, _opts), do: {:ok, nil}
+  defp legacy_observable(_decision, _inbound), do: :none
 
   @spec handle(module() | GenServer.server(), term(), term(), keyword()) ::
           {:ok, Exchange.t()} | :ignore | {:error, term()}

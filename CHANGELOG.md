@@ -4,6 +4,70 @@ All notable changes to Spectre Beam are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **Gateway runtime.** `Spectre.Beam.Gateway` is a supervised process plane
+  over the existing function boundary: it owns the mounted endpoints, resolves
+  the provider client once instead of on every call, serializes each
+  conversation, and delivers through a bounded per-endpoint outbox. The
+  caller-owned API (`Spectre.Beam.handle/4`, `decode/4`, `deliver/4`) is
+  unchanged, and a host that never starts a gateway starts none of these
+  processes.
+- `Spectre.Beam.Conversation` — one process per `{endpoint, conversation}`.
+  Concurrent messages on one chat can no longer run overlapping turns. Adds
+  optional coalescing of a burst into a single turn, cancellation of the turn
+  in flight, a typing lifecycle bracketing the real turn, and a bounded
+  transcript for surfaces that reconnect.
+- `Spectre.Beam.Outbox` — per-endpoint delivery queue. Delivery no longer
+  blocks its caller for the reply delay, throttle reservation and retry
+  budget. The queue is bounded with a declared overflow policy
+  (`:reject` or `:drop_oldest`), so a stalled provider produces an observable
+  failure instead of unbounded memory growth.
+- `Spectre.Beam.Ref`, `Spectre.Beam.Event` and `Spectre.Beam.Bus` — the
+  address, the closed event contract, and the fan-out every surface shares.
+  Events carry a monotonic per-conversation `seq`, so a reconnecting client
+  replays from a cursor instead of guessing.
+- `Spectre.Beam.Chat` — the OTP surface for LiveView, IEx, CLI, and tests:
+  `open/3`, `send/3` (asynchronous), `ask/3`, `subscribe/1`, `history/2`,
+  `cancel/1`, `push/3`, `close/1`.
+- `Spectre.Beam.Console` and `Spectre.Beam.IEx` — an interactive terminal
+  conversation plus one-line shell helpers (`say`, `ask`, `ls`, `endpoints`,
+  `tail`, `focus`, `doctor`), addressing a current conversation kept in the
+  shell process.
+- `Spectre.Beam.Socket.Server` and `Spectre.Beam.Socket.Client` — a local
+  control socket (Unix domain, `0600`, or loopback TCP) speaking length-framed
+  JSON, with ETF as the fallback when Jason is absent. Makes the gateway
+  drivable from any language without joining the cluster.
+- `mix beam.chat`, `mix beam.send`, `mix beam.status`, `mix beam.tail` and
+  `mix beam.doctor`, each usable in-VM or against a running release through
+  `--socket`.
+- `Spectre.Beam.Adapters.Local` and `Spectre.Beam.Adapters.Test` — the in-VM
+  channel behind every local surface, and the test channel that lets a suite
+  drive a real gateway rather than a parallel code path.
+- `Spectre.Beam.Store.ETS` — idempotency store with bounded retention. It adds
+  `:ttl_ms` for completed claims and `:claim_ttl_ms` so a claim abandoned by a
+  crashed caller heals instead of fencing its key forever. Gateways default to
+  a private instance of it.
+- `Spectre.Beam.Doctor` — checks the runtime processes, the configured agent
+  and store, and every endpoint's adapter, server and outbox.
+- `Spectre.Beam.Telemetry` — optional `:telemetry` spans for ingress, turn,
+  delivery and conversation lifecycle.
+- `Spectre.Beam.Runtime.observable_reply/2`, `turn/3`, `finish_decode/4` and
+  `spectre_available?/0`, the public pieces a gateway conversation needs to
+  run a turn and deliver its reply asynchronously.
+
+### Changed
+
+- `Spectre.Beam.Application` now supervises a unique registry, a duplicate-key
+  bus registry, a task supervisor and the sequence table alongside the
+  existing store and pacer.
+- `Spectre.Beam.reply/4` is implemented on top of the new
+  `Runtime.observable_reply/2`, and a legacy result whose reply text is not a
+  binary is treated as having nothing observable to send instead of raising.
+- Added `{:jason, "~> 1.4", optional: true}`. It is used only for JSON framing
+  on the control socket and is never required.
+
+
 ## [0.3.0] - 2026-08-13
 
 ### Changed
