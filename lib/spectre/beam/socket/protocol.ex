@@ -19,10 +19,11 @@ defmodule Spectre.Beam.Socket.Protocol do
   alias Spectre.Beam.Gateway
   alias Spectre.Beam.Ref
 
-  # Keep the opaque at the type exported by MapSet.new/0. OTP 28 correctly
-  # rejects refining an empty opaque container to String.t() at construction;
-  # protocol operations still only insert normalized Ref slugs.
-  @type state :: %{gateway: atom(), subscriptions: MapSet.t()}
+  # Do not expose MapSet's opaque representation through this public state
+  # contract. Elixir 1.19/OTP 28 specializes MapSet.new/0 to its empty internal
+  # map and then reports a false contract_with_opaque warning for init/1.
+  # Protocol operations remain the authority that reads and writes this field.
+  @type state :: %{gateway: atom(), subscriptions: term()}
 
   @default_ask_timeout :timer.seconds(60)
 
