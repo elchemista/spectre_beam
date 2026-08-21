@@ -250,6 +250,27 @@ defmodule Spectre.Beam.InstanceIdentityContractTest do
 
     assert {:error, {:invalid_beam_identity_options, %{}}} =
              Spectre.Beam.resolve_instance(@instance_supervisor, Agent, inbound, %{})
+
+    assert {:error, {:invalid_beam_identity_inbound, :invalid}} =
+             Spectre.Beam.external_identity(:invalid)
+
+    assert {:error, {:invalid_beam_identity_inbound, :invalid}} =
+             Spectre.Beam.resolve_instance(@instance_supervisor, Agent, :invalid)
+
+    assert {:error, {:invalid_beam_instance_options, [:not_a_keyword]}} =
+             Spectre.Beam.resolve_instance(
+               @instance_supervisor,
+               Agent,
+               inbound,
+               Keyword.put(identity_opts(), :instance_opts, [:not_a_keyword])
+             )
+
+    assert {:error, {:invalid_beam_agent_ref, 12}} =
+             Spectre.Beam.resolve_instance(@instance_supervisor, 12, inbound, identity_opts())
+
+    at = ~U[2026-08-21 00:00:00Z]
+    assert {:ok, identity} = Spectre.Beam.external_identity(inbound, authenticated_at: at)
+    assert identity.authenticated_at == DateTime.to_unix(at, :millisecond)
   end
 
   test "an unverified event cannot impersonate an explicitly linked sender" do

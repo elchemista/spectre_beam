@@ -30,6 +30,9 @@ defmodule SpectreBeam.MixProject do
   defp deps do
     [
       spectre_dep(),
+      # Optional: enables JSON framing on the local control socket. Without it
+      # the socket falls back to ETF, which only Elixir clients can read.
+      {:jason, "~> 1.4", optional: true},
       {:ex_doc, "~> 0.40", only: :dev, runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false}

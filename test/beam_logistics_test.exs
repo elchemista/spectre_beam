@@ -70,6 +70,19 @@ defmodule Spectre.Beam.LogisticsTest.ZeroWaitThrottle do
   def reserve(_key, _config, _opts), do: {:wait, 0}
 end
 
+defmodule Spectre.Beam.LogisticsTest.EdgeThrottle do
+  @moduledoc false
+  def reserve(_key, [reply: :raise], _opts), do: raise("throttle")
+  def reserve(_key, [reply: :throw], _opts), do: throw(:throttle)
+  def reserve(_key, [reply: reply], _opts), do: reply
+end
+
+defmodule Spectre.Beam.LogisticsTest.CrashingTypingAdapter do
+  @moduledoc false
+  def typing(_to, _composing, mode: :raise), do: raise("typing")
+  def typing(_to, _composing, mode: :throw), do: throw(:typing)
+end
+
 defmodule Spectre.Beam.LogisticsTest do
   use ExUnit.Case, async: false
 
@@ -227,6 +240,25 @@ defmodule Spectre.Beam.LogisticsTest do
              deliver(beam, "retry-filter", counter: counter, adapter_opts: [fail_until: 1])
   end
 
+  test "retry filters catch throws and jittered backoff remains bounded" do
+    beam =
+      beam(
+        retry: [
+          max_attempts: 2,
+          base_delay_ms: 1,
+          max_delay_ms: 1,
+          jitter_ms: 1,
+          retry_on: fn _ -> throw(:bad_filter) end
+        ]
+      )
+
+    assert {:error, {:beam_retry_filter_failure, :throw, :bad_filter}} =
+             deliver(beam, "throwing-filter", adapter_opts: [fail_until: 2])
+
+    retrying = beam(retry: [max_attempts: 2, base_delay_ms: 1, jitter_ms: 1])
+    assert {:ok, %Receipt{}} = deliver(retrying, "jitter", adapter_opts: [fail_until: 1])
+  end
+
   test "endpoint throttle spaces consecutive sends" do
     beam = beam(throttle: [min_delay_ms: 90])
     started_at = System.monotonic_time(:millisecond)
@@ -262,6 +294,43 @@ defmodule Spectre.Beam.LogisticsTest do
   test "custom throttles may reserve an immediately available zero-wait slot" do
     beam = beam(throttle: {ZeroWaitThrottle, []})
     assert {:ok, %Receipt{}} = deliver(beam, "zero-wait")
+  end
+
+  test "custom throttle failures are normalized" do
+    for {reply, expected} <- [
+          {:later, {:invalid_throttle_reply, :later}},
+          {:raise,
+           {:beam_throttle_exception, Spectre.Beam.LogisticsTest.EdgeThrottle, RuntimeError}},
+          {:throw,
+           {:beam_throttle_failure, Spectre.Beam.LogisticsTest.EdgeThrottle, :throw, :throttle}}
+        ] do
+      configured = beam(throttle: {Spectre.Beam.LogisticsTest.EdgeThrottle, [reply: reply]})
+      assert {:error, {:beam_throttled, :main, ^expected}} = deliver(configured, "edge-#{reply}")
+    end
+
+    invalid = beam(throttle: :invalid)
+
+    assert {:error, {:beam_throttled, :main, {:invalid_beam_throttle, _}}} =
+             deliver(invalid, "invalid-throttle")
+  end
+
+  test "typing exceptions and throws stay best effort" do
+    outbound = Outbound.new(Map.put(outbound("typing-edge"), :endpoint, :main))
+
+    for mode <- [:raise, :throw] do
+      endpoint =
+        Endpoint.new(:main,
+          adapter: Spectre.Beam.LogisticsTest.CrashingTypingAdapter,
+          typing: true
+        )
+
+      assert :ok =
+               Spectre.Beam.Logistics.before_deliver(endpoint, outbound,
+                 adapter_opts: [mode: mode]
+               )
+    end
+
+    assert :typing in Spectre.Beam.Logistics.option_keys()
   end
 
   test "Throttle.Local paces per conversation and per endpoint bucket" do
