@@ -21,7 +21,7 @@ Install Spectre from Hex and Beam from GitHub:
 ```elixir
 def deps do
   [
-    {:spectre, "~> 0.3.0"},
+    {:spectre, "~> 0.3.3"},
     {:spectre_beam, github: "elchemista/spectre_beam", branch: "main"}
   ]
 end
@@ -30,7 +30,7 @@ end
 Beam itself declares Spectre only for its integration suite:
 
 ```elixir
-{:spectre, "~> 0.3.0", only: :test}
+{:spectre, "~> 0.3.3", only: :test}
 ```
 
 ## Zero-configuration local chat
