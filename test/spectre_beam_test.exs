@@ -52,7 +52,7 @@ defmodule Spectre.Beam.StackContractTest do
     assert package.id == :beam
     assert package.version == "0.1.0"
     assert package.contract == 1
-    assert package.spectre == "~> 0.3.0"
+    assert package.spectre == "~> 0.3.3"
     assert package.dsl == Spectre.Beam
     assert package.provides == [{:service, :beam}]
     assert package.operations == []
@@ -79,7 +79,7 @@ defmodule Spectre.Beam.StackContractTest do
           opts
 
         _unset ->
-          assert {:spectre, "~> 0.3.2", opts} = dependency
+          assert {:spectre, "~> 0.3.3", opts} = dependency
           refute Keyword.has_key?(opts, :path)
           opts
       end

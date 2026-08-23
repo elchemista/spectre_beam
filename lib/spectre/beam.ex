@@ -33,7 +33,7 @@ defmodule Spectre.Beam do
       module: __MODULE__,
       version: @version,
       contract: 1,
-      spectre: "~> 0.3.0",
+      spectre: "~> 0.3.3",
       provides: [{:service, :beam}],
       agent_extensions: [Spectre.Beam.Extension],
       dsl: __MODULE__
