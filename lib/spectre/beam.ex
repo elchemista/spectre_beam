@@ -18,6 +18,15 @@ defmodule Spectre.Beam do
   @version "0.1.0"
   @spectre_extension :"Elixir.Spectre.Extension"
 
+  @doc "Declares AgentServer helpers through the Stack installation contract."
+  def tools(config), do: Spectre.Beam.ServerTool.tools(config)
+
+  @doc "Queues a decoded inbound on an existing AgentServer; replies arrive via its consumer."
+  def enqueue(server, %Inbound{} = inbound, opts \\ []) do
+    input = Runtime.to_input(inbound) |> Map.put(:raw, nil)
+    apply(:"Elixir.Spectre.Server", :input, [server, input, opts])
+  end
+
   @doc "Returns the Beam package version."
   @spec version() :: String.t()
   def version, do: @version
@@ -33,7 +42,7 @@ defmodule Spectre.Beam do
       module: __MODULE__,
       version: @version,
       contract: 1,
-      spectre: "~> 0.3.3",
+      spectre: "~> 0.4.0",
       provides: [{:service, :beam}],
       agent_extensions: [Spectre.Beam.Extension],
       dsl: __MODULE__

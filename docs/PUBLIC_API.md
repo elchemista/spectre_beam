@@ -130,7 +130,7 @@ it is absent the socket falls back to ETF, which only Elixir clients read.
 
 ## Compatibility boundary
 
-The `spectre: "~> 0.3.3"` value returned by `Spectre.Beam.manifest/0` is Stack
+The `spectre: "~> 0.4.0"` value returned by `Spectre.Beam.manifest/0` is Stack
 compatibility metadata. It does not create a Mix dependency. Applications that
 use the integrated Agent path must include Spectre from Hex and Beam from its
 GitHub release; callers using only `new/2`, `decode/4`, and `deliver/4` do not

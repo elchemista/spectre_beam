@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased — Spectre 0.4
+
+- Register endpoints and explicitly bound governed delivery tools; enqueue normalized inbound messages into AgentServer.
+- Require Spectre `~> 0.4.0`; retain legacy APIs where applicable.
+
 All notable changes to Spectre Beam are documented in this file.
 
 ## [Unreleased]

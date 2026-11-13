@@ -21,7 +21,7 @@ Install Spectre from Hex and Beam from GitHub:
 ```elixir
 def deps do
   [
-    {:spectre, "~> 0.3.3"},
+    {:spectre, "~> 0.4.0"},
     {:spectre_beam, github: "elchemista/spectre_beam", branch: "main"}
   ]
 end
@@ -30,7 +30,7 @@ end
 Beam itself declares Spectre only for its integration suite:
 
 ```elixir
-{:spectre, "~> 0.3.3", only: :test}
+{:spectre, "~> 0.4.0", only: :test}
 ```
 
 ## Zero-configuration local chat
@@ -735,3 +735,25 @@ defmodule MyApp.EnrichSender do
   def call(pipeline, _opts), do: pipeline
 end
 ```
+
+## AgentServer / Spectre 0.4
+
+This branch implements the optional `Spectre.Stack.Installable.tools/1`
+registration contract. Install the package in the Agent's Stack and use
+`use Spectre.Server, tools: MyApp.AI` in the separate Server module. The core
+creates helpers; this package does not export functions to import into the
+Server. Tool results arrive through `on_result` after durable acquisition.
+
+`beam(ctx, {:endpoints}, on_result: :channels)` inspects configured channels.
+Install with `bind: [deliver: :send_message]` to expose
+`beam(ctx, {:deliver, :mail, %{to: "dev@example.com", content: %{text: "Hello"}}},
+on_result: :sent)`. Delivery becomes a GAM proposal for the host binding;
+installation does not authorize sending. The host executor can call
+`Spectre.Beam.ServerTool.execute(args, service_context)` after admission.
+The primitive uses a stable `command_id` as the provider idempotency key and
+returns a plain receipt. `Spectre.Beam.enqueue(server, decoded_inbound)` queues
+input on an existing Server. Observe its consumer for asynchronous replies;
+legacy `handle`/Turn helpers retain their existing Instance semantics.
+
+For local integration tests set `SPECTRE_PATH=../spectre`; the core branch is
+`feature/agent-server-gam`. No transport credentials are needed for fixture tests.
