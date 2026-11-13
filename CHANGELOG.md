@@ -2,6 +2,8 @@
 
 ## Unreleased — Spectre 0.4
 
+- Reject unknown, duplicate or invalid governed delivery bindings during Stack installation.
+
 - Register endpoints and explicitly bound governed delivery tools; enqueue normalized inbound messages into AgentServer.
 - Require Spectre `~> 0.4.0`; retain legacy APIs where applicable.
 

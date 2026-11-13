@@ -112,4 +112,18 @@ defmodule Spectre.Beam.ServerToolTest do
     assert {:ok, id} = Spectre.Beam.enqueue(server, inbound)
     assert_receive {Spectre.Server, ^server, {:response, ^id, "Received: Hi", []}}, 2000
   end
+
+  test "binding typos, duplicates, nil and non-atom operations fail during installation" do
+    for bindings <- [
+          [delivre: :send],
+          [deliver: nil],
+          [deliver: "send"],
+          [deliver: :one, deliver: :two],
+          :invalid
+        ] do
+      assert_raise ArgumentError, ~r/beam bind:/, fn ->
+        Spectre.Beam.tools(%{options: [bind: bindings], channels: []})
+      end
+    end
+  end
 end

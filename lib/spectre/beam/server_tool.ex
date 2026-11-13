@@ -11,10 +11,11 @@ defmodule Spectre.Beam.ServerTool do
   @value :"Elixir.Spectre.GAM.Canonical.Value"
 
   def tools(config) do
+    bindings = bindings!(config)
     operations = %{endpoints: %{path: :cognitive, retry: :safe, max_bytes: 1_048_576}}
 
     operations =
-      case Keyword.get(config.options, :bind, [])[:deliver] do
+      case Keyword.get(bindings, :deliver) do
         nil ->
           operations
 
@@ -105,5 +106,19 @@ defmodule Spectre.Beam.ServerTool do
       :ok -> reason
       {:error, _} -> :beam_delivery_error_details_unavailable
     end
+  end
+
+  defp bindings!(config) do
+    bindings = Keyword.get(Map.get(config, :options, []), :bind, [])
+
+    unless Keyword.keyword?(bindings) and
+             length(Keyword.keys(bindings)) == length(Enum.uniq(Keyword.keys(bindings))) and
+             Enum.all?(bindings, fn {key, operation} ->
+               key == :deliver and is_atom(operation) and operation not in [nil, true, false]
+             end) do
+      raise ArgumentError, "beam bind: expects unique deliver: host_operation entries"
+    end
+
+    bindings
   end
 end
