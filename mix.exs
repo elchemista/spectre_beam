@@ -52,8 +52,16 @@ defmodule SpectreBeam.MixProject do
   defp docs do
     [
       main: "readme",
-      source_ref: "v#{@version}",
-      extras: ["README.md", "docs/PUBLIC_API.md", "CHANGELOG.md", "LICENSE"]
+      source_ref: "feature/stack-tools-0.4",
+      extras: [
+        "README.md",
+        "docs/SPECTRE_0_4.md",
+        "docs/MIGRATING_TO_0_4.md",
+        "docs/CHANNELS_AND_LEGACY_RUNTIME.md",
+        "docs/PUBLIC_API.md",
+        "CHANGELOG.md",
+        "LICENSE"
+      ]
     ]
   end
 end

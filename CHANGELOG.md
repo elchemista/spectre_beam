@@ -2,6 +2,8 @@
 
 ## Unreleased — Spectre 0.4
 
+- Rewrite the README around standalone use and Stack → Agent → Server integration; add lifecycle/GAM, migration and explicitly scoped retained-runtime guides to ExDoc.
+
 - Reject unknown, duplicate or invalid governed delivery bindings during Stack installation.
 
 - Register endpoints and explicitly bound governed delivery tools; enqueue normalized inbound messages into AgentServer.
@@ -70,7 +72,7 @@ All notable changes to Spectre Beam are documented in this file.
 
 ### Changed
 
-- `Spectre.Beam.Application` now supervises a unique registry, a duplicate-key
+- <code>Spectre.Beam.Application</code> now supervises a unique registry, a duplicate-key
   bus registry, a task supervisor and the sequence table alongside the
   existing store and pacer.
 - `Spectre.Beam.reply/4` is implemented on top of the new
