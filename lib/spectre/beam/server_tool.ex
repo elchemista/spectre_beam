@@ -10,6 +10,59 @@ defmodule Spectre.Beam.ServerTool do
   alias Spectre.Beam.{Config, Endpoint, Outbound, Receipt, Runtime}
   @value :"Elixir.Spectre.GAM.Canonical.Value"
 
+  if Code.ensure_loaded?(Spectre.Server.GAM.EffectAdapter) do
+    @behaviour Spectre.Server.GAM.EffectAdapter
+  end
+
+  @doc "Declares the execution adapter for explicitly bound delivery."
+  @spec effects(map()) :: map()
+  def effects(config) do
+    Map.new(bindings!(config), fn {:deliver, operation} ->
+      {operation,
+       %{
+         contract: 1,
+         adapter: __MODULE__,
+         operation: :deliver,
+         side_effect: :non_idempotent,
+         material: :arguments,
+         partition: [],
+         schema_hash: nil,
+         config: %{}
+       }}
+    end)
+  end
+
+  @doc "Delivers an admitted effect and distinguishes known no-effect from ambiguity."
+  @spec execute_effect(:deliver, map(), map()) ::
+          {:ok, term()} | {:error, :definitive_no_effect | :ambiguous, term()}
+  def execute_effect(:deliver, %{endpoint: endpoint, outbound: attrs} = args, context) do
+    with :ok <- validate_effect(endpoint, attrs, context) do
+      case execute(args, context) do
+        {:ok, receipt} -> {:ok, receipt}
+        {:error, {:ambiguous, reason}} -> {:error, :ambiguous, reason}
+        {:error, reason} -> {:error, :ambiguous, reason}
+      end
+    else
+      {:error, reason} -> {:error, :definitive_no_effect, portable_reason(reason)}
+    end
+  end
+
+  def execute_effect(_, _, _), do: {:error, :definitive_no_effect, :invalid_delivery_request}
+
+  @spec validate_effect(term(), map(), map()) :: :ok | {:error, term()}
+  defp validate_effect(endpoint, attrs, context) do
+    with {:ok, config} <- Spectre.Beam.config(context.agent),
+         {:ok, _} <- Config.fetch(config, endpoint),
+         %Outbound{} <-
+           Outbound.new(
+             Map.merge(attrs, %{endpoint: endpoint, idempotency_key: context.command_id})
+           ) do
+      :ok
+    end
+  rescue
+    ArgumentError -> {:error, :invalid_delivery_request}
+  end
+
   def tools(config) do
     bindings = bindings!(config)
     operations = %{endpoints: %{path: :cognitive, retry: :safe, max_bytes: 1_048_576}}

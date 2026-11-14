@@ -33,6 +33,10 @@ defmodule Spectre.Beam do
   @doc "Declares AgentServer helpers through the Stack installation contract."
   def tools(config), do: Spectre.Beam.ServerTool.tools(config)
 
+  @doc "Registers explicitly bound delivery for managed GAM execution."
+  @spec effects(map()) :: map()
+  def effects(config), do: Spectre.Beam.ServerTool.effects(config)
+
   @doc "Queues a decoded inbound on an existing AgentServer; replies arrive via its consumer."
   def enqueue(server, %Inbound{} = inbound, opts \\ []) do
     input = Runtime.to_input(inbound) |> Map.put(:raw, nil)

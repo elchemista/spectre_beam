@@ -2,6 +2,13 @@ defmodule Spectre.Beam.ServerToolTest do
   use ExUnit.Case, async: false
   alias Spectre.Beam.ServerTool
 
+  test "managed delivery registration remains opt-in and uses a closed adapter" do
+    assert %{} = Spectre.Beam.effects(%{options: [], channels: []})
+    effects = Spectre.Beam.effects(%{options: [bind: [deliver: :send_message]], channels: []})
+    assert %{send_message: %{adapter: ServerTool, operation: :deliver}} = effects
+    assert Spectre.Stack.Effects.validate!(effects) == effects
+  end
+
   defmodule Channel do
     def capabilities(_opts), do: [:text]
 
@@ -110,7 +117,8 @@ defmodule Spectre.Beam.ServerToolTest do
       )
 
     assert {:ok, id} = Spectre.Beam.enqueue(server, inbound)
-    assert_receive {Spectre.Server, ^server, {:response, ^id, "Received: Hi", []}}, 2000
+    assert_receive {Spectre.Server, ^server, {:response, ^id, "Received: Hi", metadata}}, 2000
+    assert is_binary(metadata[:message_id])
   end
 
   test "binding typos, duplicates, nil and non-atom operations fail during installation" do

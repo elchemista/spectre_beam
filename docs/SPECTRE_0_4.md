@@ -23,25 +23,21 @@ end
 ```
 
 `MyApp.EmailChannel` implements the real `Spectre.Beam.Channel` behaviour; it is
-application code, not a package-provided email service. The host prepares its GAM
-binding before starting a Server that selects this Stack:
+application code, not a package-provided email service. Configure the allowed
+operation before starting a Server that selects this Stack:
 
 ```elixir
-bridge = [scope: gam_scope,
-  bindings: %{send_notice: %{candidate: {MyApp.GAMHost, :notice}}}]
 {:ok, server} = Spectre.Server.start_link(
-  agent: MyApp.SupportAgent, gam: {Spectre.Server.GAM, bridge}, consumer: self())
+  agent: MyApp.SupportAgent,
+  identity: %{subject: authenticated_user.id},
+  consumer: self(),
+  gam: [operations: %{send_notice: [confirm: true]}])
 ```
 
-`gam_scope` comes from the host's governed domain. `MyApp.GAMHost.notice` is its
-Candidate factory; it freezes the intended target/content and consequences. This
-configuration is not a shortcut for creating a mandate. The runnable core
-[all-tools example](https://github.com/elchemista/spectre/tree/feature/agent-server-gam/integration/stack_tools)
-shows the complete host boundary with deterministic providers.
-
-After admission, the host executor can call `Spectre.Beam.ServerTool.execute/2`
-with `%{endpoint: endpoint, outbound: attrs}` and trusted `%{agent: Agent,
-command_id: stable_id}`. Beam pins the idempotency key, makes one provider attempt,
+AgentServer creates its GAM boundary and frozen presentation automatically.
+Application `handle_action/2` may add business restrictions. The registered Beam
+adapter receives only an admitted Act and its committed target/content.
+Beam pins the idempotency key, makes one provider attempt,
 and projects the receipt to ordinary data. Reusing the command id returns the
 existing receipt or a fenced in-progress result; it does not manufacture a second
 send. `{:error, {:ambiguous, reason}}` must map to a GAM ambiguous outcome with
@@ -114,11 +110,16 @@ need governance; read-oriented operations are not categorically exempt from thos
 application boundaries. Ordinary configured cognition is not automatically a new
 end-user authorization ceremony.
 
-The host supplies a real GAM scope, Candidate factories, mandates/evidence,
-Presentations or interpretation when needed, and admitted executors. `bind:` names
-that host operation only. Native package calls outside the Server do not acquire
-these guarantees automatically. Do not call an effect executor directly from a
-flow callback and describe that call as governed.
+AgentServer automatically owns the GAM scope, Candidate preparation, authority
+checks, consent Presentations, admitted execution and recorded results. Mounted
+Skill Servers use that same Domain and authority ledger. The application enables
+operations, supplies authenticated identity and business restrictions, and
+presents the Server's consent requests; it does not implement a GAM Host.
+`bind:` selects an operation reference and grants no authority. Native package
+calls outside the Server do not acquire these guarantees automatically. Use the
+[core automatic GAM APIs](https://github.com/elchemista/spectre/blob/feature/agent-server-gam/docs/MANAGED_GAM.md)
+when an external process needs governed execution; directly invoking an effect
+executor in a flow callback bypasses that boundary.
 
 ## Recovery and errors
 
@@ -137,3 +138,34 @@ migration. Contract drift is handled by the core recovery rules rather than
 invoking new adapter code with old arguments. See the
 [core lifecycle](https://github.com/elchemista/spectre/blob/feature/agent-server-gam/docs/STACK_TOOLS.md)
 and [AgentServer guide](https://github.com/elchemista/spectre/blob/feature/agent-server-gam/docs/AGENT_SERVER.md).
+
+## Mounted Skill runtimes
+
+Use the Stack-generated `beam` helper in a Skill's ordinary
+`Spectre.Server` callbacks. The Agent mounts `Spectre.Skill, server: ...`; each
+mount then owns its GenServer, state, workers, streams, pending intentions and
+checkpoint key. No package-specific Skill adapter or extra installation is needed.
+
+```text
+AgentServer ─────┐
+Research Skill ──┼──→ one automatic GAM boundary → same Domain / authority ledger
+Knowledge Skill ┘
+```
+
+The root creates this connection once and passes it to the children. Do not
+bootstrap another Domain, copy the ledger, implement a Skill Host or extend
+ingress manually. Mounting grants no authority. Governed effects must satisfy
+both root `gam:` operations and the mount's `governed:` references; scoped
+Kinetic references keep their complete mounted scope. Ledger/Lab inspect the
+calling runtime's checkpoint, not a copy of the shared GAM history.
+
+The shared kernel orders admission while workers can run concurrently. Every
+proposal retains its Skill invocation provenance. A confirmation belongs to the
+originating mount and exact presentation, so it cannot approve a different
+Skill's pending request. Timer expiry and closure enter the same lifecycle
+ledger without erasing Acts, uncertain Outcomes or Duties. No per-Skill GAM
+configuration is required.
+
+See the [core shared/local ownership table and confirmation example](https://github.com/elchemista/spectre/blob/feature/agent-server-gam/docs/SKILLS.md),
+[automatic GAM contract](https://github.com/elchemista/spectre/blob/feature/agent-server-gam/docs/MANAGED_GAM.md)
+and [LiveView showcase](https://github.com/elchemista/spectre/blob/feature/agent-server-gam/docs/DEMO.md).
