@@ -1,11 +1,23 @@
 defmodule Spectre.Beam do
   @moduledoc """
-  External-channel boundary for Spectre applications.
+  External channels and delivery boundaries for Spectre applications.
 
-  Beam owns provider normalization, channel delivery, pipelines, and delivery
-  idempotency. Spectre remains the owner of Agents, Turns, policy, identity,
-  and persistence. The integration is implemented through public contracts so
-  Beam does not require `:spectre` in its runtime dependency graph.
+  Beam normalizes inbound messages, mounts channel adapters and supplies delivery
+  idempotency. In Spectre 0.4, install Beam in a Stack, select that Stack in the
+  Agent and use `use Spectre.Server, tools: MyApp.AI` in its Server. This generates
+  the private `beam(ctx, operation, opts)` helper; it is not an import from this
+  module. `enqueue/3` submits decoded inbound messages to an existing Server.
+
+  Endpoint inspection is cognitive. Delivery requires an explicit host operation
+  binding and GAM admission; installation grants no authority. Native `deliver/4`
+  calls are direct channel APIs and do not automatically enter GAM. The Server
+  owns continuations and recovery; Beam owns neither another agent loop nor a
+  policy engine. See the [0.4 integration guide](SPECTRE_0_4.md) and the
+  [Governed Act Model](https://spectre.guide/en/governed-act-model).
+
+  Beam uses late-bound public contracts and does not require Spectre in its own
+  runtime dependency graph. Retained Agent/Instance DSL entry points are scoped
+  separately in the migration guide.
   """
 
   alias Spectre.Beam.Config
@@ -17,6 +29,19 @@ defmodule Spectre.Beam do
 
   @version "0.1.0"
   @spectre_extension :"Elixir.Spectre.Extension"
+
+  @doc "Declares AgentServer helpers through the Stack installation contract."
+  def tools(config), do: Spectre.Beam.ServerTool.tools(config)
+
+  @doc "Registers explicitly bound delivery for managed GAM execution."
+  @spec effects(map()) :: map()
+  def effects(config), do: Spectre.Beam.ServerTool.effects(config)
+
+  @doc "Queues a decoded inbound on an existing AgentServer; replies arrive via its consumer."
+  def enqueue(server, %Inbound{} = inbound, opts \\ []) do
+    input = Runtime.to_input(inbound) |> Map.put(:raw, nil)
+    apply(:"Elixir.Spectre.Server", :input, [server, input, opts])
+  end
 
   @doc "Returns the Beam package version."
   @spec version() :: String.t()
@@ -33,7 +58,7 @@ defmodule Spectre.Beam do
       module: __MODULE__,
       version: @version,
       contract: 1,
-      spectre: "~> 0.3.3",
+      spectre: "~> 0.4.0",
       provides: [{:service, :beam}],
       agent_extensions: [Spectre.Beam.Extension],
       dsl: __MODULE__

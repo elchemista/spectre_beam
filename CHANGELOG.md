@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased — Spectre 0.4
+
+- Exercise the existing 0.4 branch in CI against explicit compatible source checkouts; refresh obsolete dependency locks.
+- Resolve the delivery helper Credo finding without changing delivery semantics.
+
+- Add Apache-2.0 package metadata, source links and explicit distribution files,
+  including guides and examples, for release artifact validation.
+
+- Document a runnable Stack → Agent → Server setup, with package-specific
+  contracts and links to the shared GAM, Skill and recovery guides. Retained
+  standalone and Instance/Run APIs remain documented separately.
+
+- Reject unknown, duplicate or invalid governed delivery bindings during Stack installation.
+
+- Register endpoints and explicitly bound governed delivery tools; enqueue normalized inbound messages into AgentServer.
+- Require Spectre `~> 0.4.0`; retain legacy APIs where applicable.
+
 All notable changes to Spectre Beam are documented in this file.
 
 ## [Unreleased]
@@ -63,7 +80,7 @@ All notable changes to Spectre Beam are documented in this file.
 
 ### Changed
 
-- `Spectre.Beam.Application` now supervises a unique registry, a duplicate-key
+- <code>Spectre.Beam.Application</code> now supervises a unique registry, a duplicate-key
   bus registry, a task supervisor and the sequence table alongside the
   existing store and pacer.
 - `Spectre.Beam.reply/4` is implemented on top of the new

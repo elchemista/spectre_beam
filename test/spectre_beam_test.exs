@@ -52,7 +52,7 @@ defmodule Spectre.Beam.StackContractTest do
     assert package.id == :beam
     assert package.version == "0.1.0"
     assert package.contract == 1
-    assert package.spectre == "~> 0.3.3"
+    assert package.spectre == "~> 0.4.0"
     assert package.dsl == Spectre.Beam
     assert package.provides == [{:service, :beam}]
     assert package.operations == []
@@ -63,7 +63,9 @@ defmodule Spectre.Beam.StackContractTest do
 
   test "selects the configured Spectre source outside the runtime dependency graph" do
     config = Mix.Project.config()
-    refute Keyword.has_key?(config, :package)
+    assert config[:package][:licenses] == ["Apache-2.0"]
+    assert "docs" in config[:package][:files]
+    refute "test" in config[:package][:files]
 
     dependency =
       config
@@ -79,7 +81,7 @@ defmodule Spectre.Beam.StackContractTest do
           opts
 
         _unset ->
-          assert {:spectre, "~> 0.3.3", opts} = dependency
+          assert {:spectre, "~> 0.4.0", opts} = dependency
           refute Keyword.has_key?(opts, :path)
           opts
       end

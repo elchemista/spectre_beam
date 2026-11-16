@@ -1,18 +1,32 @@
 # Spectre Beam public API — 0.1.0
 
+[Current README](../README.md) · [AgentServer 0.4](SPECTRE_0_4.md) · [Migration](MIGRATING_TO_0_4.md)
+
+The channel contracts below remain available. Gateway/Chat/Turn/Instance sections describe the retained runtime, not an implicit AgentServer bridge.
+
 This manifest describes the supported `spectre_beam` `0.1.0` surface. Beam has
 no runtime Mix dependency on Spectre. Its Spectre-facing callbacks are
-nevertheless public and are tested against Spectre Hex `~> 0.3.3` through a
+nevertheless public and are tested against the matching Spectre 0.4 development branch through a
 test-only dependency.
 
 Default arguments expand into every callable arity. Documented types and
 documented struct fields on the listed modules are public. Anything not listed
 is an implementation detail even when exported.
 
+## AgentServer boundary
+
+`enqueue/2,3` targets an existing Server. `tools/1` is the Stack registration callback.
+`ServerTool.execute/2` is a technical primitive for an already admitted host executor,
+not a generated helper or a grant of authority. The generated `beam/3` lives privately
+in the selected Server module; it is not an export of `Spectre.Beam`.
+
 ## Manifest
 
+- `Spectre.Beam.ServerTool`
+  - functions: `execute/2`
+
 - `Spectre.Beam`
-  - functions: `ask/2`, `ask/3`, `compile/3`, `config/1`, `decode/3`, `decode/4`, `deliver/3`, `deliver/4`, `external_identity/1`, `external_identity/2`, `handle/3`, `handle/4`, `handle_instance/4`, `handle_instance/5`, `manifest/0`, `new/1`, `new/2`, `open/1`, `open/2`, `reply/3`, `reply/4`, `resolve_instance/3`, `resolve_instance/4`, `subscribe/2`, `subscribe/3`, `to_input/1`, `unsubscribe/2`, `unsubscribe/3`, `version/0`
+  - functions: `ask/2`, `ask/3`, `compile/3`, `config/1`, `decode/3`, `decode/4`, `enqueue/2`, `enqueue/3`, `tools/1`, `deliver/3`, `deliver/4`, `external_identity/1`, `external_identity/2`, `handle/3`, `handle/4`, `handle_instance/4`, `handle_instance/5`, `manifest/0`, `new/1`, `new/2`, `open/1`, `open/2`, `reply/3`, `reply/4`, `resolve_instance/3`, `resolve_instance/4`, `subscribe/2`, `subscribe/3`, `to_input/1`, `unsubscribe/2`, `unsubscribe/3`, `version/0`
   - macros: `beam/2`, `beaming/1`, `channel/2`
 - `Spectre.Beam.ActionProvider`
   - Spectre callbacks: `actions/1`, `execute/3`, `schema_hash/2`
@@ -130,8 +144,8 @@ it is absent the socket falls back to ETF, which only Elixir clients read.
 
 ## Compatibility boundary
 
-The `spectre: "~> 0.3.3"` value returned by `Spectre.Beam.manifest/0` is Stack
+The `spectre: "~> 0.4.0"` value returned by `Spectre.Beam.manifest/0` is Stack
 compatibility metadata. It does not create a Mix dependency. Applications that
-use the integrated Agent path must include Spectre from Hex and Beam from its
-GitHub release; callers using only `new/2`, `decode/4`, and `deliver/4` do not
+use the integrated AgentServer path must include matching Spectre and Beam Git
+branches as shown in the README; callers using only `new/2`, `decode/4`, and `deliver/4` do not
 need Spectre.

@@ -140,8 +140,9 @@ defmodule Spectre.Beam.ConsoleTest do
       refute is_nil(gateway)
     end
 
-    test "ask returns the reply text", %{gateway: _gateway} do
-      assert {:ok, reply} = BeamIEx.ask("console:asked", "question")
+    test "ask returns the reply text", %{gateway: gateway} do
+      {:ok, ref} = Chat.open(gateway, "console:asked")
+      assert {:ok, reply} = BeamIEx.ask(ref, "question")
       assert is_binary(reply)
     end
 
