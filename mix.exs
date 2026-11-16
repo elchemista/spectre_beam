@@ -9,6 +9,7 @@ defmodule SpectreBeam.MixProject do
       app: :spectre_beam,
       name: "Spectre Beam",
       version: @version,
+      package: package(),
       elixir: "~> 1.19",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
@@ -51,6 +52,7 @@ defmodule SpectreBeam.MixProject do
 
   defp docs do
     [
+      assets: %{"docs/assets" => "docs/assets"},
       main: "readme",
       source_ref: "feature/stack-tools-0.4",
       extras: [
@@ -62,6 +64,18 @@ defmodule SpectreBeam.MixProject do
         "CHANGELOG.md",
         "LICENSE"
       ]
+    ]
+  end
+
+  defp package do
+    [
+      licenses: ["Apache-2.0"],
+      links: %{
+        "GitHub" => @source_url,
+        "Documentation" => "#{@source_url}/blob/feature/stack-tools-0.4/README.md",
+        "Changelog" => "#{@source_url}/blob/feature/stack-tools-0.4/CHANGELOG.md"
+      },
+      files: ~w(lib docs mix.exs .formatter.exs README.md CHANGELOG.md LICENSE)
     ]
   end
 end

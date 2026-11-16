@@ -62,11 +62,28 @@ defmodule Spectre.Beam.ServerToolTest do
     id = Spectre.Identity.uuid7()
 
     assert {:ok, %{status: :accepted, outbound_id: ^id, occurred_at: date}} =
-             ServerTool.execute(args, %{agent: Agent, command_id: id})
+             ServerTool.execute_effect(:deliver, args, %{agent: Agent, command_id: id})
 
     assert is_binary(date)
     assert_received {:actual_delivery, %{idempotency_key: ^id}}
-    assert {:ok, _} = ServerTool.execute(args, %{agent: Agent, command_id: id})
+    assert {:ok, _} = ServerTool.execute_effect(:deliver, args, %{agent: Agent, command_id: id})
+    refute_received {:actual_delivery, _}
+  end
+
+  test "registered executor rejects invalid endpoints and content before delivery" do
+    attrs = %{to: "dev@example.com", content: %{type: :text, text: "Hello"}}
+    context = %{agent: Agent, command_id: Spectre.Identity.uuid7()}
+
+    assert {:error, :definitive_no_effect, {:unknown_beam_endpoint, :missing}} =
+             ServerTool.execute_effect(:deliver, %{endpoint: :missing, outbound: attrs}, context)
+
+    assert {:error, :definitive_no_effect, :invalid_delivery_request} =
+             ServerTool.execute_effect(
+               :deliver,
+               %{endpoint: :mail, outbound: Map.delete(attrs, :content)},
+               context
+             )
+
     refute_received {:actual_delivery, _}
   end
 
@@ -92,13 +109,13 @@ defmodule Spectre.Beam.ServerToolTest do
     {:ok, args} = ServerTool.prepare(:deliver, [:mail, attrs], %{config: installation.config})
     context = %{agent: Agent, command_id: Spectre.Identity.uuid7()}
 
-    assert {:error, {:ambiguous, :beam_delivery_error_details_unavailable}} =
-             ServerTool.execute(args, context)
+    assert {:error, :ambiguous, :beam_delivery_error_details_unavailable} =
+             ServerTool.execute_effect(:deliver, args, context)
 
     assert_received {:actual_delivery, _}
 
-    assert {:error, {:ambiguous, {:beam_delivery_in_progress, _}}} =
-             ServerTool.execute(args, context)
+    assert {:error, :ambiguous, {:beam_delivery_in_progress, _}} =
+             ServerTool.execute_effect(:deliver, args, context)
 
     refute_received {:actual_delivery, _}
   end

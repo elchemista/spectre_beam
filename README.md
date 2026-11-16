@@ -9,11 +9,17 @@ With Spectre 0.4, the Stack installs channel capabilities, the Agent declares
 routes, and a separate AgentServer owns conversation callbacks. Beam supplies
 transport operations; the Server and GAM own consequential agent actions.
 
+![Spectre Beam: architecture](docs/assets/readme-architecture.svg)
+
+[Diagram source](docs/assets/readme-architecture.mmd).
+
+The host authenticates inbound events and selects their Server. A delivery
+receipt records transport acceptance; it does not represent human approval.
+
 ## Installation on the 0.4 development branch
 
-This branch targets the **unreleased Spectre 0.4 architecture**. Use matching Git
-branches; the examples do not assume that Spectre 0.4 is available from Hex.
-For reproducible deployments, replace branch selectors with reviewed commit refs.
+Use these matching branches while core 0.4 is unreleased. Pin reviewed commit
+refs for deployment; satellite package versions are independent of core.
 
 ```elixir
 def deps do
@@ -102,39 +108,14 @@ the caller owns authorization, execution and recovery.
 - [Public API](docs/PUBLIC_API.md) and [changelog](CHANGELOG.md)
 - [Governed Act Model](https://spectre.guide/en/governed-act-model) and [core tool lifecycle](https://github.com/elchemista/spectre/blob/feature/agent-server-gam/docs/STACK_TOOLS.md)
 
-## Use inside a reusable Skill
+## Runtime and examples
 
-The `beam` helper is generated in a Skill callback module with
-`use Spectre.Server, tools: MyApp.AI`, using the same installed Stack. A
-`Spectre.Skill` with `server:` has a separate GenServer, local assigns, workers,
-streams, pending intentions and checkpoint key.
+The generated `beam` helper also works in [Skill Server callbacks](https://github.com/elchemista/spectre/blob/feature/agent-server-gam/docs/SKILLS.md).
+Skills share the root's GAM Domain; enable governed operations on the root and
+allow them in the mount's `governed:` references. The
+[core tool guide](https://github.com/elchemista/spectre/blob/feature/agent-server-gam/docs/STACK_TOOLS.md) covers scheduling and recovery;
+[Managed GAM](https://github.com/elchemista/spectre/blob/feature/agent-server-gam/docs/MANAGED_GAM.md) covers consent and registered execution.
 
-**It uses the root AgentServer's same automatic GAM integration, Domain and
-authority ledger.** Configure `gam:` once on the root. Mounting a Skill creates
-no new Domain or grant and needs no additional Host or consent ingress. Shared
-Stack resources stay in their existing supervised runtime.
-
-Agent and Skill workers can run concurrently; the shared kernel orders admission.
-A governed effect must be enabled in root `operations` and permitted by the
-mount's `governed:` references. Each Skill proposal records its mount and
-invocation provenance. Consent identifies the originating Skill and exact
-presentation: approving an email cannot approve another Skill's memory write.
-Timer closure is recorded in the same Domain and does not erase a Duty.
-Ordinary cognitive operations retain their configured provider boundary.
-
-See the [core Skill ownership and consent guide](https://github.com/elchemista/spectre/blob/feature/agent-server-gam/docs/SKILLS.md),
-[automatic GAM responsibilities](https://github.com/elchemista/spectre/blob/feature/agent-server-gam/docs/MANAGED_GAM.md)
-and [two-Skill LiveView showcase](https://github.com/elchemista/spectre/blob/feature/agent-server-gam/docs/DEMO.md).
-
-## Managed GAM execution registration
-
-The optional `c:Spectre.Stack.Installable.effects/1` callback registers immutable
-execution adapters for Spectre 0.4 managed GAM. Beam registers only a `deliver` operation selected by `bind:`. The admitted Act supplies a stable correlation/idempotency key; transport uncertainty remains explicit.
-
-The effect registration is included in the compiled installation digest and is
-checked again before execution. It grants no authority: the application enables
-operations and the GAM kernel admits each concrete consequence before the adapter
-runs. AgentServer owns GAM automatically in every environment. Native package
-APIs remain available outside the AgentServer loop; their caller owns that boundary.
-Adapters implement `execute_effect/3` and distinguish successful observations,
-definitive no-effect and uncertain outcomes; uncertain effects are not retried.
+See the [LiveView demo](https://github.com/elchemista/demo_spectre) for an application,
+the [Spectre guides](https://spectre.guide) for articles, and the
+[release audit](https://github.com/elchemista/spectre/blob/feature/agent-server-gam/docs/RELEASE_0_4.md) for verified revisions.

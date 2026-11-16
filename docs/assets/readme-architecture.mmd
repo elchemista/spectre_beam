@@ -1,0 +1,6 @@
+flowchart TB
+  C["External channel"] -->|"authenticated inbound"| S["AgentServer"]
+  S -->|"bound delivery proposal"| G["GAM admission"]
+  G -->|"admitted Act"| B["Beam transport"]
+  B -->|"send"| C
+  B -->|"technical receipt"| S

@@ -49,5 +49,5 @@ provenance remains recorded, confirmations stay bound to the exact Skill and
 presentation, and timer closure cannot erase a Duty. Parallel workers remain
 subject to the same kernel admission laws.
 
-See [the package integration guide](SPECTRE_0_4.md#mounted-skill-runtimes) and the
+See [the package integration guide](SPECTRE_0_4.md#server-lifecycle-and-skills) and the
 [core Skill ownership and consent contract](https://github.com/elchemista/spectre/blob/feature/agent-server-gam/docs/SKILLS.md).

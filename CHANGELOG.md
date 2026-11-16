@@ -2,7 +2,15 @@
 
 ## Unreleased — Spectre 0.4
 
-- Rewrite the README around standalone use and Stack → Agent → Server integration; add lifecycle/GAM, migration and explicitly scoped retained-runtime guides to ExDoc.
+- Exercise the existing 0.4 branch in CI against explicit compatible source checkouts; refresh obsolete dependency locks.
+- Resolve the delivery helper Credo finding without changing delivery semantics.
+
+- Add Apache-2.0 package metadata, source links and explicit distribution files,
+  including guides and examples, for release artifact validation.
+
+- Document a runnable Stack → Agent → Server setup, with package-specific
+  contracts and links to the shared GAM, Skill and recovery guides. Retained
+  standalone and Instance/Run APIs remain documented separately.
 
 - Reject unknown, duplicate or invalid governed delivery bindings during Stack installation.
 

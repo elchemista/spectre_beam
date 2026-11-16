@@ -36,14 +36,16 @@ defmodule Spectre.Beam.ServerTool do
   @spec execute_effect(:deliver, map(), map()) ::
           {:ok, term()} | {:error, :definitive_no_effect | :ambiguous, term()}
   def execute_effect(:deliver, %{endpoint: endpoint, outbound: attrs} = args, context) do
-    with :ok <- validate_effect(endpoint, attrs, context) do
-      case execute(args, context) do
-        {:ok, receipt} -> {:ok, receipt}
-        {:error, {:ambiguous, reason}} -> {:error, :ambiguous, reason}
-        {:error, reason} -> {:error, :ambiguous, reason}
-      end
-    else
-      {:error, reason} -> {:error, :definitive_no_effect, portable_reason(reason)}
+    case validate_effect(endpoint, attrs, context) do
+      :ok ->
+        case execute(args, context) do
+          {:ok, receipt} -> {:ok, receipt}
+          {:error, {:ambiguous, reason}} -> {:error, :ambiguous, reason}
+          {:error, reason} -> {:error, :ambiguous, reason}
+        end
+
+      {:error, reason} ->
+        {:error, :definitive_no_effect, portable_reason(reason)}
     end
   end
 

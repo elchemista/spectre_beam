@@ -63,7 +63,9 @@ defmodule Spectre.Beam.StackContractTest do
 
   test "selects the configured Spectre source outside the runtime dependency graph" do
     config = Mix.Project.config()
-    refute Keyword.has_key?(config, :package)
+    assert config[:package][:licenses] == ["Apache-2.0"]
+    assert "docs" in config[:package][:files]
+    refute "test" in config[:package][:files]
 
     dependency =
       config
