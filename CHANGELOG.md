@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased — Spectre 0.4
+## 0.1.0 — 2026-11-17
 
 - Exercise the existing 0.4 branch in CI against explicit compatible source checkouts; refresh obsolete dependency locks.
 - Resolve the delivery helper Credo finding without changing delivery semantics.

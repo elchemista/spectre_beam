@@ -6,7 +6,7 @@ The channel contracts below remain available. Gateway/Chat/Turn/Instance section
 
 This manifest describes the supported `spectre_beam` `0.1.0` surface. Beam has
 no runtime Mix dependency on Spectre. Its Spectre-facing callbacks are
-nevertheless public and are tested against the matching Spectre 0.4 development branch through a
+nevertheless public and are tested against the Spectre 0.4 API through a
 test-only dependency.
 
 Default arguments expand into every callable arity. Documented types and

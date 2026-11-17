@@ -86,6 +86,6 @@ checkpointing, pending consent and recovery; package installation grants no
 authority. An uncertain effect needs reconciliation rather than a blind retry.
 
 The helper also works in mounted Skill Servers, which share the root GAM Domain
-and keep separate state and checkpoints. See [Stack tools](https://github.com/elchemista/spectre/blob/feature/agent-server-gam/docs/STACK_TOOLS.md),
-[Managed GAM](https://github.com/elchemista/spectre/blob/feature/agent-server-gam/docs/MANAGED_GAM.md) and the [Skill guide](https://github.com/elchemista/spectre/blob/feature/agent-server-gam/docs/SKILLS.md)
+and keep separate state and checkpoints. See [Stack tools](https://github.com/elchemista/spectre/blob/0.4.0/docs/STACK_TOOLS.md),
+[Managed GAM](https://github.com/elchemista/spectre/blob/0.4.0/docs/MANAGED_GAM.md) and the [Skill guide](https://github.com/elchemista/spectre/blob/0.4.0/docs/SKILLS.md)
 for the shared runtime contracts. Native APIs remain caller-owned.

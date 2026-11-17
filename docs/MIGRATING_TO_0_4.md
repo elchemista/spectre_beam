@@ -1,9 +1,8 @@
 # Migrate Beam integration from 0.3 to 0.4
 
-This guide targets the current unreleased development branch, not a published
-Hex release. Start with the matching Git dependencies in the [README](../README.md).
-The package's compatibility requirement is Spectre `~> 0.4.0`; use the core
-`feature/agent-server-gam` and satellite `feature/stack-tools-0.4` branches together.
+This guide covers integration with Spectre `~> 0.4.0`. Install the compatible
+package versions shown in the [README](../README.md), then follow the ownership
+and callback changes below. Satellite versions remain independent of core.
 
 ## Move ownership, preserve capabilities
 
@@ -15,7 +14,7 @@ The package's compatibility requirement is Spectre `~> 0.4.0`; use the core
 | Legacy `Spectre.Turn` return used to send replies | Do not synthesize a Turn; wire the Server consumer and governed external delivery explicitly |
 
 1. Keep the Stack installation and supported provider/configuration choices.
-   Change any dependency pins to the matching branches or reviewed commits.
+   Change any dependency pins to the compatible package versions or reviewed source refs.
 2. Keep routes/classification declarations in the Agent, set `server: MyApp.Server`,
    and move execution callbacks to `use Spectre.Server, tools: MyApp.AI`.
 3. Return the context containing generated helper commands. Handle actual tagged
@@ -50,4 +49,4 @@ presentation, and timer closure cannot erase a Duty. Parallel workers remain
 subject to the same kernel admission laws.
 
 See [the package integration guide](SPECTRE_0_4.md#server-lifecycle-and-skills) and the
-[core Skill ownership and consent contract](https://github.com/elchemista/spectre/blob/feature/agent-server-gam/docs/SKILLS.md).
+[core Skill ownership and consent contract](https://github.com/elchemista/spectre/blob/0.4.0/docs/SKILLS.md).
