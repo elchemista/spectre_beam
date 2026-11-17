@@ -273,6 +273,56 @@ defmodule Spectre.Beam.InstanceIdentityContractTest do
     assert identity.authenticated_at == DateTime.to_unix(at, :millisecond)
   end
 
+  test "portable structured principals resolve through an explicit AgentRef" do
+    ref = Spectre.AgentRef.new(Agent)
+    incoming = inbound(:telegram, %{account: 42, workspace: "support"}, "structured-chat")
+    assert {:ok, identity} = Spectre.Beam.external_identity(incoming, authenticated_at: 100)
+    refute Map.has_key?(Map.from_struct(identity), :principal_id)
+
+    assert {:ok, _link} =
+             SubjectRegistry.bind(
+               @subject_registry,
+               ref,
+               Subject.new("structured-account"),
+               identity,
+               proof: "authenticated-principal"
+             )
+
+    assert {:ok, pid} =
+             Spectre.Beam.resolve_instance(@instance_supervisor, ref, incoming, identity_opts())
+
+    assert Instance.ref(pid).agent_ref == ref
+    assert Instance.ref(pid).subject == Subject.new("structured-account")
+  end
+
+  test "invalid AgentRefs and non-Agent modules fail before registry lookup" do
+    incoming = inbound(:telegram, "principal", "chat")
+    ref = %{Spectre.AgentRef.new(Agent) | id: nil}
+
+    assert {:error, {:invalid_agent_ref_id, nil}} =
+             Spectre.Beam.resolve_instance(@instance_supervisor, ref, incoming, identity_opts())
+
+    assert {:error, {:invalid_beam_agent_ref, message}} =
+             Spectre.Beam.resolve_instance(
+               @instance_supervisor,
+               String,
+               incoming,
+               identity_opts()
+             )
+
+    assert is_binary(message)
+  end
+
+  test "identity metadata cannot introduce process-local values" do
+    incoming = inbound(:telegram, "principal", "chat")
+
+    assert {:error, {:invalid_beam_external_identity, message}} =
+             Spectre.Beam.external_identity(incoming, identity_metadata: %{session: self()})
+
+    assert message =~ "nonportable_run_value"
+    assert message =~ "pid"
+  end
+
   test "an unverified event cannot impersonate an explicitly linked sender" do
     authenticated_event = event(:telegram, "linked-user", "linked-chat", "authenticated-message")
     assert {:ok, authenticated} = Spectre.Beam.decode(Agent, :telegram, authenticated_event)

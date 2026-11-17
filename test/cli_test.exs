@@ -130,12 +130,19 @@ defmodule Spectre.Beam.CLITest do
     assert gateway in names and other in names
   end
 
-  test "tails socket events and reports socket command failures", %{path: path} do
+  test "tails socket events and reports socket command failures", %{path: path, gateway: gateway} do
     {:ok, conn} = Client.connect(path)
+    {:ok, ref} = Gateway.open(gateway, "console:tail")
 
     closer =
       Task.async(fn ->
-        Process.sleep(10)
+        assert_eventually(
+          fn ->
+            Registry.lookup(Spectre.Beam.Bus.Registry, Spectre.Beam.Ref.topic(ref)) != []
+          end,
+          100
+        )
+
         {:ok, writer} = Client.connect(path)
 
         {:ok, _} =
